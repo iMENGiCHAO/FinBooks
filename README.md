@@ -55,9 +55,8 @@
 
 > *（此处可插入截图）*
 >
-> | 凭证录入 | 科目表 | 财务报表 |
-> |---|---|---|
-> | ![](screenshots/journal.png) | ![](screenshots/accounts.png) | ![](screenshots/reports.png) |
+> | 首页总览 | 资产负债表 | 利润表 |
+> | ![](screenshots/dashboard.png) | ![](screenshots/balance_sheet.png) | ![](screenshots/income_statement.png) |
 
 ---
 
