@@ -59,8 +59,9 @@ struct PDFExporter {
         }
     }
 
-    /// 自定义 NSView 子类，用标准坐标系渲染 PDF 内容（与原 CGContext 兼容）
+    /// 自定义 NSView 子类，Flipped 坐标系确保 NSString.draw(in:) 正确渲染中文
     private class FlippedPDFView: NSView {
+        override var isFlipped: Bool { true }
         let renderBlock: (CGContext, CGRect) -> Void
         init(frame: CGRect, renderBlock: @escaping (CGContext, CGRect) -> Void) {
             self.renderBlock = renderBlock

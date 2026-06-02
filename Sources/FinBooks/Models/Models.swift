@@ -264,50 +264,56 @@ final class DataStore: ObservableObject {
         return true
     }
 
-    // MARK: - JournalEntry CRUD
-    func addEntry(_ entry: JournalEntry) {
+    // MARK: - JournalEntry CRUD (返回 Bool 表示是否成功)
+    @discardableResult
+    func addEntry(_ entry: JournalEntry) -> Bool {
         // 结账锁定期间不可新增
         if let cid = entry.companyID {
             let ey = Calendar.current.component(.year, from: entry.date)
             let em = Calendar.current.component(.month, from: entry.date)
             guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
                 print("⚠️ 该期间已结账，无法新增凭证")
-                return
+                return false
             }
         }
         journalEntries.append(entry)
         saveAll()
         objectWillChange.send()
+        return true
     }
-    func updateEntry(_ entry: JournalEntry) {
+    @discardableResult
+    func updateEntry(_ entry: JournalEntry) -> Bool {
         // 结账锁定期间不可修改
         if let cid = entry.companyID {
             let ey = Calendar.current.component(.year, from: entry.date)
             let em = Calendar.current.component(.month, from: entry.date)
             guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
                 print("⚠️ 该期间已结账，无法修改凭证")
-                return
+                return false
             }
         }
         entry.updatedAt = Date()
         saveAll()
         journalEntries = journalEntries
         objectWillChange.send()
+        return true
     }
-    func deleteEntry(_ entry: JournalEntry) {
+    @discardableResult
+    func deleteEntry(_ entry: JournalEntry) -> Bool {
         // 结账锁定期间不可删除
         if let cid = entry.companyID {
             let ey = Calendar.current.component(.year, from: entry.date)
             let em = Calendar.current.component(.month, from: entry.date)
             guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
                 print("⚠️ 该期间已结账，无法删除凭证")
-                return
+                return false
             }
         }
         journalEntries.removeAll { $0.id == entry.id }
         saveAll()
         journalEntries = journalEntries
         objectWillChange.send()
+        return true
     }
     func togglePosted(_ entry: JournalEntry) -> Bool {
         // 结账锁定期间不可变更状态

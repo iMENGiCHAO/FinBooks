@@ -114,7 +114,9 @@ struct JournalEntriesView: View {
         ), presenting: confirmDelete) { entry in
             Button("取消", role: .cancel) { confirmDelete = nil }
             Button("删除", role: .destructive) {
-                dataStore.deleteEntry(entry)
+                if !dataStore.deleteEntry(entry) {
+                    postError = "删除失败：凭证「\(entry.number)」所属期间已结账，无法删除"
+                }
                 confirmDelete = nil
             }
         } message: { entry in
@@ -212,13 +214,26 @@ struct EntryTable: View {
                     HStack(spacing: 6) {
                         Button { onView(e) } label: { Image(systemName: "eye").font(.caption) }
                             .buttonStyle(.plain).help("查看详情")
-                        // 所有凭证均可编辑（编辑后需重新过账）
+                        // 快捷过账/反过账按钮
+                        if !e.isPosted {
+                            Button { onTogglePost(e) } label: {
+                                Image(systemName: "checkmark.circle").font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                            .buttonStyle(.plain).help("过账")
+                        } else {
+                            Button { onTogglePost(e) } label: {
+                                Image(systemName: "arrow.uturn.backward").font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                            .buttonStyle(.plain).help("反过账")
+                        }
                         Button { onEdit(e) } label: { Image(systemName: "pencil").font(.caption) }
                             .buttonStyle(.plain).help("编辑凭证")
                         Button { onDelete(e) } label: { Image(systemName: "trash").font(.caption) }
                             .buttonStyle(.plain).help("删除").foregroundStyle(.red)
                     }
-                }.width(85)
+                }.width(110)
             }
             .tableStyle(.bordered)
             .contextMenu(forSelectionType: JournalEntry.self) { items in
@@ -530,10 +545,19 @@ struct EntryEditor: View {
             je.lines.append(line)
         }
 
-        if isNew { dataStore.addEntry(je) }
+        if isNew { 
+            if !dataStore.addEntry(je) {
+                alertMessage = "保存失败：该期间已结账，无法新增凭证"
+                showAlert = true
+                return
+            }
+        }
         else {
-            // 编辑已过账凭证后保持原状态，但要求重新确认
-            dataStore.updateEntry(je)
+            if !dataStore.updateEntry(je) {
+                alertMessage = "保存失败：该期间已结账，无法修改凭证"
+                showAlert = true
+                return
+            }
         }
 
         dismiss()
