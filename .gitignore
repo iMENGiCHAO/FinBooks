@@ -1,0 +1,24 @@
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Xcode
+*.xcuserdata
+*.xcworkspace/xcuserdata
+DerivedData/
+build/
+
+# Build artifacts
+archive/
+/FinBooks
+FinBooks-x86_64
+FinBooks-arm64
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Temp / cache
+/tmp/swiftmodcache

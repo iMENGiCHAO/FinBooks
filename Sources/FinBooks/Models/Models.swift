@@ -1,0 +1,444 @@
+import SwiftUI
+import Foundation
+import Combine
+
+// MARK: - 公司
+final class Company: Codable, Identifiable, ObservableObject, Hashable {
+    static func == (lhs: Company, rhs: Company) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    var id: UUID
+    var name: String
+    var legalName: String
+    var taxId: String
+    var address: String
+    var phone: String
+    var fiscalYearStart: String
+    var currency: String
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(name: String, legalName: String = "", taxId: String = "", address: String = "", phone: String = "",
+         fiscalYearStart: String = "01-01", currency: String = "CNY") {
+        self.id = UUID()
+        self.name = name
+        self.legalName = legalName
+        self.taxId = taxId
+        self.address = address
+        self.phone = phone
+        self.fiscalYearStart = fiscalYearStart
+        self.currency = currency
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
+// MARK: - 会计科目
+final class Account: Codable, Identifiable, ObservableObject, Hashable {
+    static func == (lhs: Account, rhs: Account) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    var id: UUID
+    var code: String
+    var name: String
+    var category: AccountCategory
+    var parentCode: String?
+    var isActive: Bool
+    var sortOrder: Int
+    var createdAt: Date
+    var updatedAt: Date
+    var companyID: UUID?
+
+    init(code: String, name: String, category: AccountCategory, parentCode: String? = nil,
+         isActive: Bool = true, sortOrder: Int = 0) {
+        self.id = UUID()
+        self.code = code
+        self.name = name
+        self.category = category
+        self.parentCode = parentCode
+        self.isActive = isActive
+        self.sortOrder = sortOrder
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
+enum AccountCategory: String, Codable, CaseIterable, Identifiable {
+    case asset = "资产"
+    case liability = "负债"
+    case equity = "所有者权益"
+    case revenue = "收入"
+    case expense = "费用"
+
+    var id: String { rawValue }
+
+    var nature: Nature {
+        switch self {
+        case .asset, .expense: return .debit
+        case .liability, .equity, .revenue: return .credit
+        }
+    }
+    enum Nature: String, Codable { case debit, credit }
+}
+
+// MARK: - 凭证
+final class JournalEntry: Codable, Identifiable, ObservableObject, Hashable {
+    static func == (lhs: JournalEntry, rhs: JournalEntry) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    var id: UUID
+    var number: String
+    var date: Date
+    var summary: String
+    var attachmentCount: Int
+    var isPosted: Bool
+    var createdAt: Date
+    var updatedAt: Date
+    var companyID: UUID?
+    var lines: [JournalLine] = []
+
+    var debitTotal: Decimal { lines.reduce(Decimal.zero) { $0 + $1.debit } }
+    var creditTotal: Decimal { lines.reduce(Decimal.zero) { $0 + $1.credit } }
+    var isBalanced: Bool { debitTotal == creditTotal }
+
+    init(number: String, date: Date, summary: String, attachmentCount: Int = 0, isPosted: Bool = false) {
+        self.id = UUID()
+        self.number = number
+        self.date = date
+        self.summary = summary
+        self.attachmentCount = attachmentCount
+        self.isPosted = isPosted
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
+// MARK: - 分录行
+final class JournalLine: Codable, Identifiable, ObservableObject, Hashable {
+    static func == (lhs: JournalLine, rhs: JournalLine) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    var id: UUID
+    var summary: String
+    var debit: Decimal
+    var credit: Decimal
+    var entryID: UUID?
+    var accountID: UUID?
+    var accountCode: String = ""
+    var accountName: String = ""
+
+    init(summary: String = "", debit: Decimal = .zero, credit: Decimal = .zero,
+         accountCode: String = "", accountName: String = "") {
+        self.id = UUID()
+        self.summary = summary
+        self.debit = debit
+        self.credit = credit
+        self.accountCode = accountCode
+        self.accountName = accountName
+    }
+}
+
+// MARK: - PeriodClose
+final class PeriodClose: Codable, Identifiable, ObservableObject, Hashable {
+    static func == (lhs: PeriodClose, rhs: PeriodClose) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    var id: UUID
+    var year: Int
+    var month: Int
+    var isClosed: Bool
+    var closedAt: Date?
+    var closedBy: String
+    var companyID: UUID?
+
+    init(year: Int, month: Int, closedBy: String = "") {
+        self.id = UUID()
+        self.year = year
+        self.month = month
+        self.isClosed = false
+        self.closedBy = closedBy
+    }
+}
+
+// MARK: - 数据持久化 (MainActor)
+@MainActor
+final class DataStore: ObservableObject {
+    static let shared = DataStore()
+
+    @Published var companies: [Company] = []
+    @Published var accounts: [Account] = []
+    @Published var journalEntries: [JournalEntry] = []
+    @Published var periodCloses: [PeriodClose] = []
+
+    private let fileManager = FileManager.default
+    private var dataURL: URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("com.finbooks.app")
+        try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private init() {
+        loadAll()
+        if companies.isEmpty {
+            createDemoData()
+        }
+    }
+
+    // MARK: - Persistence
+    func saveAll() {
+        saveJSON("companies.json", data: companies)
+        saveJSON("accounts.json", data: accounts)
+        saveJSON("entries.json", data: journalEntries)
+        saveJSON("periodCloses.json", data: periodCloses)
+    }
+
+    func loadAll() {
+        companies = loadJSON("companies.json") ?? []
+        accounts = loadJSON("accounts.json") ?? []
+        journalEntries = loadJSON("entries.json") ?? []
+        periodCloses = loadJSON("periodCloses.json") ?? []
+    }
+
+    private func saveJSON<T: Codable>(_ filename: String, data: T) {
+        let url = dataURL.appendingPathComponent(filename)
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(data).write(to: url, options: .atomic)
+        } catch { print("Save \(filename) failed: \(error)") }
+    }
+
+    private func loadJSON<T: Codable>(_ filename: String) -> T? {
+        let url = dataURL.appendingPathComponent(filename)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do { return try JSONDecoder().decode(T.self, from: Data(contentsOf: url)) }
+        catch { print("Load \(filename) failed: \(error)"); return nil }
+    }
+
+    // MARK: - Company CRUD
+    func addCompany(_ company: Company) {
+        companies.append(company)
+        saveAll()
+        objectWillChange.send()
+    }
+    func updateCompany(_ company: Company) {
+        company.updatedAt = Date()
+        saveAll()
+        objectWillChange.send()
+    }
+    func deleteCompany(_ company: Company) {
+        companies.removeAll { $0.id == company.id }
+        accounts.removeAll { $0.companyID == company.id }
+        journalEntries.removeAll { $0.companyID == company.id }
+        periodCloses.removeAll { $0.companyID == company.id }
+        saveAll()
+        objectWillChange.send()
+    }
+
+    // MARK: - Account CRUD
+    func addAccount(_ account: Account) {
+        accounts.append(account)
+        saveAll()
+        objectWillChange.send()
+    }
+    func updateAccount(_ account: Account) {
+        account.updatedAt = Date()
+        saveAll()
+        objectWillChange.send()
+    }
+    @discardableResult
+    func deleteAccount(_ account: Account) -> Bool {
+        // BUG-2: 检查是否有凭证引用此科目
+        let refs = journalEntries.filter { entry in
+            entry.lines.contains { $0.accountID == account.id }
+        }
+        if !refs.isEmpty {
+            let refNumbers = refs.prefix(5).map(\.number).joined(separator: "、")
+            let suffix = refs.count > 5 ? "等\(refs.count)张凭证" : ""
+            print("科目 \"\(account.code) \(account.name)\" 被 \(refNumbers)\(suffix) 引用，无法删除")
+            return false
+        }
+        accounts.removeAll { $0.id == account.id }
+        saveAll()
+        objectWillChange.send()
+        return true
+    }
+
+    // MARK: - JournalEntry CRUD
+    func addEntry(_ entry: JournalEntry) {
+        // 结账锁定期间不可新增
+        if let cid = entry.companyID {
+            let ey = Calendar.current.component(.year, from: entry.date)
+            let em = Calendar.current.component(.month, from: entry.date)
+            guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
+                print("⚠️ 该期间已结账，无法新增凭证")
+                return
+            }
+        }
+        journalEntries.append(entry)
+        saveAll()
+        objectWillChange.send()
+    }
+    func updateEntry(_ entry: JournalEntry) {
+        // 结账锁定期间不可修改
+        if let cid = entry.companyID {
+            let ey = Calendar.current.component(.year, from: entry.date)
+            let em = Calendar.current.component(.month, from: entry.date)
+            guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
+                print("⚠️ 该期间已结账，无法修改凭证")
+                return
+            }
+        }
+        entry.updatedAt = Date()
+        saveAll()
+        journalEntries = journalEntries
+        objectWillChange.send()
+    }
+    func deleteEntry(_ entry: JournalEntry) {
+        // 结账锁定期间不可删除
+        if let cid = entry.companyID {
+            let ey = Calendar.current.component(.year, from: entry.date)
+            let em = Calendar.current.component(.month, from: entry.date)
+            guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
+                print("⚠️ 该期间已结账，无法删除凭证")
+                return
+            }
+        }
+        journalEntries.removeAll { $0.id == entry.id }
+        saveAll()
+        journalEntries = journalEntries
+        objectWillChange.send()
+    }
+    func togglePosted(_ entry: JournalEntry) -> Bool {
+        // 结账锁定期间不可变更状态
+        if let cid = entry.companyID {
+            let ey = Calendar.current.component(.year, from: entry.date)
+            let em = Calendar.current.component(.month, from: entry.date)
+            guard !isPeriodClosed(companyID: cid, year: ey, month: em) else {
+                print("⚠️ 该期间已结账，无法变更凭证状态")
+                return false
+            }
+        }
+        // BUG-3: 过账时校验借贷平衡
+        if !entry.isPosted {
+            guard entry.isBalanced && entry.debitTotal > 0 else {
+                print("凭证 \(entry.number) 借贷不平，无法过账")
+                return false
+            }
+        }
+        entry.isPosted.toggle()
+        entry.updatedAt = Date()
+        // BUG-4: 过账/反过账时同步更新被引用科目的余额缓存
+        AccountingEngine.syncBalances(for: entry)
+        saveAll()
+        journalEntries = journalEntries
+        objectWillChange.send()
+        return true
+    }
+
+    // MARK: - PeriodClose CRUD
+    func addPeriodClose(_ pc: PeriodClose) {
+        // 防止重复添加同一期间
+        if let existing = periodCloses.first(where: { $0.companyID == pc.companyID && $0.year == pc.year && $0.month == pc.month }) {
+            existing.isClosed = pc.isClosed
+            existing.closedAt = pc.closedAt
+            existing.closedBy = pc.closedBy
+        } else {
+            periodCloses.append(pc)
+        }
+        saveAll()
+        objectWillChange.send()
+    }
+
+    func isPeriodClosed(companyID: UUID, year: Int, month: Int) -> Bool {
+        periodCloses.contains { $0.companyID == companyID && $0.year == year && $0.month == month && $0.isClosed }
+    }
+
+    // MARK: - Query
+    func accounts(for companyID: UUID) -> [Account] {
+        accounts.filter { $0.companyID == companyID }
+    }
+    func entries(for companyID: UUID) -> [JournalEntry] {
+        journalEntries.filter { $0.companyID == companyID }
+    }
+
+    // MARK: - Demo Data
+    private func createDemoData() {
+        let company = Company(name: "示例科技有限公司", legalName: "示例科技有限公司",
+                              taxId: "91440101MA5XXXXXXX", address: "北京市朝阳区建国路88号",
+                              phone: "010-88886666")
+        companies.append(company)
+
+        let defaultAccounts: [(String, String, AccountCategory)] = [
+            ("1001", "库存现金", .asset), ("1002", "银行存款", .asset),
+            ("1122", "应收账款", .asset), ("1123", "预付账款", .asset),
+            ("1221", "其他应收款", .asset), ("1403", "原材料", .asset),
+            ("1405", "库存商品", .asset), ("1601", "固定资产", .asset),
+            ("1602", "累计折旧", .asset),
+            ("2001", "短期借款", .liability), ("2202", "应付账款", .liability),
+            ("2203", "预收账款", .liability), ("2211", "应付职工薪酬", .liability),
+            ("2221", "应交税费", .liability), ("2241", "其他应付款", .liability),
+            ("2501", "长期借款", .liability),
+            ("4001", "实收资本", .equity), ("4103", "本年利润", .equity),
+            ("4104", "利润分配", .equity),
+            ("5001", "主营业务收入", .revenue), ("5051", "其他业务收入", .revenue),
+            ("5111", "投资收益", .revenue),
+            ("6001", "主营业务成本", .expense), ("6401", "税金及附加", .expense),
+            ("6601", "销售费用", .expense), ("6602", "管理费用", .expense),
+            ("6603", "财务费用", .expense), ("6801", "所得税费用", .expense),
+        ]
+        for (idx, (code, name, cat)) in defaultAccounts.enumerated() {
+            let a = Account(code: code, name: name, category: cat, sortOrder: idx)
+            a.companyID = company.id
+            accounts.append(a)
+        }
+
+        // 创建几条示例凭证（设置 entryID 确保总账查询正常）
+        let bank = accounts.first { $0.code == "1002" }!
+        let revenue = accounts.first { $0.code == "5001" }!
+        let cost = accounts.first { $0.code == "6001" }!
+        let inventory = accounts.first { $0.code == "1405" }!
+        let salary = accounts.first { $0.code == "2211" }!
+        let management = accounts.first { $0.code == "6602" }!
+
+        let e1 = JournalEntry(number: "记-2026-0001", date: Date(), summary: "销售收入入账", isPosted: true)
+        e1.companyID = company.id
+        let l1a = JournalLine(summary: "银行存款", debit: 100000, credit: 0)
+        l1a.accountID = bank.id; l1a.accountCode="1002"; l1a.accountName="银行存款"; l1a.entryID = e1.id
+        let l1b = JournalLine(summary: "主营业务收入", debit: 0, credit: 100000)
+        l1b.accountID = revenue.id; l1b.accountCode="5001"; l1b.accountName="主营业务收入"; l1b.entryID = e1.id
+        e1.lines = [l1a, l1b]
+
+        let e2 = JournalEntry(number: "记-2026-0002", date: Date(), summary: "结转销售成本", isPosted: true)
+        e2.companyID = company.id
+        let l2a = JournalLine(summary: "主营业务成本", debit: 60000, credit: 0)
+        l2a.accountID = cost.id; l2a.accountCode="6001"; l2a.accountName="主营业务成本"; l2a.entryID = e2.id
+        let l2b = JournalLine(summary: "库存商品", debit: 0, credit: 60000)
+        l2b.accountID = inventory.id; l2b.accountCode="1405"; l2b.accountName="库存商品"; l2b.entryID = e2.id
+        e2.lines = [l2a, l2b]
+
+        let e3 = JournalEntry(number: "记-2026-0003", date: Date(), summary: "支付管理人员工资", isPosted: true)
+        e3.companyID = company.id
+        let l3a = JournalLine(summary: "管理费用", debit: 15000, credit: 0)
+        l3a.accountID = management.id; l3a.accountCode="6602"; l3a.accountName="管理费用"; l3a.entryID = e3.id
+        let l3b = JournalLine(summary: "应付职工薪酬", debit: 0, credit: 15000)
+        l3b.accountID = salary.id; l3b.accountCode="2211"; l3b.accountName="应付职工薪酬"; l3b.entryID = e3.id
+        e3.lines = [l3a, l3b]
+
+        journalEntries = [e1, e2, e3]
+        saveAll()
+    }
+}
+
+// MARK: - AccountCategory 颜色
+extension AccountCategory {
+    var categoryColor: Color {
+        switch self {
+        case .asset: return .blue
+        case .liability: return .orange
+        case .equity: return .green
+        case .revenue: return .purple
+        case .expense: return .red
+        }
+    }
+}
