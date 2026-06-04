@@ -12,5 +12,14 @@ struct FinBooksApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1200, height: 800)
+        .commands {
+            // 文件菜单 — 刷新数据（供 AI Agent 写入后从磁盘重新加载）
+            CommandGroup(after: .saveItem) {
+                Button("从磁盘刷新数据") {
+                    DataStore.shared.refreshFromDisk()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+            }
+        }
     }
 }

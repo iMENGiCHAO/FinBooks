@@ -459,8 +459,9 @@ struct EntryEditor: View {
                         Button("取消") { dismiss() }.buttonStyle(.bordered)
                         Button(action: save) { Text("保存凭证") }
                             .buttonStyle(.borderedProminent)
-                            .disabled(!canSave)
-                    }
+                                                .disabled(!canSave)
+                                                .keyboardShortcut(.defaultAction)
+                                            }
                     .padding(.horizontal, 16).padding(.vertical, 10)
                 }
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -519,42 +520,40 @@ struct EntryEditor: View {
             alertMessage = "金额不能为零"; showAlert = true; return
         }
 
-        let je: JournalEntry
-        let isNew = (entry == nil)
+        // 先构建新的lines（临时），确认保存成功后再替换
+        var newLines: [JournalLine] = []
+        for li in lines where li.accountID != nil && (li.debit > 0 || li.credit > 0) {
+            let line = JournalLine(summary: li.summary, debit: li.debit, credit: li.credit,
+                                   accountCode: li.accountCode, accountName: li.accountName)
+            line.accountID = li.accountID
+            newLines.append(line)
+        }
 
         if let existing = entry {
-            je = existing
-            je.date = date
-            je.summary = trimmedSummary
-            je.updatedAt = Date()
-            je.lines.removeAll()
+            // 编辑：先尝试保存，成功后再清除旧lines
+            let oldLines = existing.lines
+            existing.lines = newLines
+            for i in existing.lines.indices { existing.lines[i].entryID = existing.id }
+            existing.date = date
+            existing.summary = trimmedSummary
+            existing.updatedAt = Date()
+            if !dataStore.updateEntry(existing) {
+                existing.lines = oldLines // 恢复旧数据
+                alertMessage = "保存失败：该期间已结账，无法修改凭证"
+                showAlert = true
+                return
+            }
         } else {
-            je = JournalEntry(
+            let je = JournalEntry(
                 number: AccountingEngine.nextVoucherNumber(for: company),
                 date: date,
                 summary: trimmedSummary
             )
             je.companyID = company.id
-        }
-
-        for li in lines where li.accountID != nil && (li.debit > 0 || li.credit > 0) {
-            let line = JournalLine(summary: li.summary, debit: li.debit, credit: li.credit,
-                                   accountCode: li.accountCode, accountName: li.accountName)
-            line.entryID = je.id
-            line.accountID = li.accountID
-            je.lines.append(line)
-        }
-
-        if isNew { 
+            je.lines = newLines
+            for i in je.lines.indices { je.lines[i].entryID = je.id }
             if !dataStore.addEntry(je) {
                 alertMessage = "保存失败：该期间已结账，无法新增凭证"
-                showAlert = true
-                return
-            }
-        }
-        else {
-            if !dataStore.updateEntry(je) {
-                alertMessage = "保存失败：该期间已结账，无法修改凭证"
                 showAlert = true
                 return
             }

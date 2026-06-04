@@ -169,6 +169,10 @@ final class DataStore: ObservableObject {
     @Published var journalEntries: [JournalEntry] = []
     @Published var periodCloses: [PeriodClose] = []
 
+    /// 数据版本号，用于检测 JSON schema 变更
+    static let dataVersion = 1
+    private let versionKey = "com.finbooks.dataVersion"
+
     private let fileManager = FileManager.default
     private var dataURL: URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -178,14 +182,55 @@ final class DataStore: ObservableObject {
     }
 
     private init() {
+        migrateIfNeeded()
         loadAll()
         if companies.isEmpty {
             createDemoData()
         }
     }
 
+    /// 数据迁移：检测 schema 版本变更
+    private func migrateIfNeeded() {
+        let storedVersion = UserDefaults.standard.integer(forKey: versionKey)
+        if storedVersion < Self.dataVersion {
+            print("[DataStore] 执行数据迁移: \(storedVersion) → \(Self.dataVersion)")
+            // 迁移逻辑：目前版本1无需执行
+            UserDefaults.standard.set(Self.dataVersion, forKey: versionKey)
+        }
+    }
+
+    /// 备份所有 JSON 文件
+    func backupAll() {
+        let backupDir = dataURL.appendingPathComponent("backups")
+        try? fileManager.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let ts = DateFormatter()
+        ts.dateFormat = "yyyyMMdd_HHmmss"
+        let stamp = ts.string(from: Date())
+        for file in ["companies.json", "accounts.json", "entries.json", "periodCloses.json"] {
+            let src = dataURL.appendingPathComponent(file)
+            guard fileManager.fileExists(atPath: src.path) else { continue }
+            let dst = backupDir.appendingPathComponent("\(stamp)_\(file)")
+            try? fileManager.copyItem(at: src, to: dst)
+        }
+        // 清理超过30天的备份
+        cleanupOldBackups(backupDir: backupDir)
+    }
+
+    private func cleanupOldBackups(backupDir: URL) {
+        guard let files = try? fileManager.contentsOfDirectory(at: backupDir, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        let deadline = Date().addingTimeInterval(-30 * 86400)
+        for file in files {
+            if let attrs = try? fileManager.attributesOfItem(atPath: file.path),
+               let cdate = attrs[.creationDate] as? Date,
+               cdate < deadline {
+                try? fileManager.removeItem(at: file)
+            }
+        }
+    }
+
     // MARK: - Persistence
     func saveAll() {
+        backupAll()
         saveJSON("companies.json", data: companies)
         saveJSON("accounts.json", data: accounts)
         saveJSON("entries.json", data: journalEntries)
@@ -197,6 +242,14 @@ final class DataStore: ObservableObject {
         accounts = loadJSON("accounts.json") ?? []
         journalEntries = loadJSON("entries.json") ?? []
         periodCloses = loadJSON("periodCloses.json") ?? []
+    }
+
+    /// 从磁盘重新加载数据（供 AI Agent 写入后被 App 调用）
+    func refreshFromDisk() {
+        loadAll()
+        // 手动触发 SwiftUI 更新
+        objectWillChange.send()
+        print("[DataStore] 已从磁盘刷新数据: \(companies.count) 公司, \(accounts.count) 科目, \(journalEntries.count) 凭证")
     }
 
     private func saveJSON<T: Codable>(_ filename: String, data: T) {
@@ -369,6 +422,11 @@ final class DataStore: ObservableObject {
     }
 
     // MARK: - Demo Data
+    private func date(year: Int, month: Int, day: Int) -> Date? {
+        var c = DateComponents(); c.year = year; c.month = month; c.day = day
+        return Calendar.current.date(from: c)
+    }
+
     private func createDemoData() {
         let company = Company(name: "示例科技有限公司", legalName: "示例科技有限公司",
                               taxId: "91440101MA5XXXXXXX", address: "北京市朝阳区建国路88号",
@@ -407,7 +465,7 @@ final class DataStore: ObservableObject {
         let salary = accounts.first { $0.code == "2211" }!
         let management = accounts.first { $0.code == "6602" }!
 
-        let e1 = JournalEntry(number: "记-2026-0001", date: Date(), summary: "销售收入入账", isPosted: true)
+        let e1 = JournalEntry(number: "记-2026-0001", date: date(year: 2026, month: 5, day: 31)!, summary: "销售收入入账", isPosted: true)
         e1.companyID = company.id
         let l1a = JournalLine(summary: "银行存款", debit: 100000, credit: 0)
         l1a.accountID = bank.id; l1a.accountCode="1002"; l1a.accountName="银行存款"; l1a.entryID = e1.id
@@ -415,7 +473,7 @@ final class DataStore: ObservableObject {
         l1b.accountID = revenue.id; l1b.accountCode="5001"; l1b.accountName="主营业务收入"; l1b.entryID = e1.id
         e1.lines = [l1a, l1b]
 
-        let e2 = JournalEntry(number: "记-2026-0002", date: Date(), summary: "结转销售成本", isPosted: true)
+        let e2 = JournalEntry(number: "记-2026-0002", date: date(year: 2026, month: 5, day: 31)!, summary: "结转销售成本", isPosted: true)
         e2.companyID = company.id
         let l2a = JournalLine(summary: "主营业务成本", debit: 60000, credit: 0)
         l2a.accountID = cost.id; l2a.accountCode="6001"; l2a.accountName="主营业务成本"; l2a.entryID = e2.id
@@ -423,7 +481,7 @@ final class DataStore: ObservableObject {
         l2b.accountID = inventory.id; l2b.accountCode="1405"; l2b.accountName="库存商品"; l2b.entryID = e2.id
         e2.lines = [l2a, l2b]
 
-        let e3 = JournalEntry(number: "记-2026-0003", date: Date(), summary: "支付管理人员工资", isPosted: true)
+        let e3 = JournalEntry(number: "记-2026-0003", date: date(year: 2026, month: 6, day: 1)!, summary: "支付管理人员工资", isPosted: true)
         e3.companyID = company.id
         let l3a = JournalLine(summary: "管理费用", debit: 15000, credit: 0)
         l3a.accountID = management.id; l3a.accountCode="6602"; l3a.accountName="管理费用"; l3a.entryID = e3.id
