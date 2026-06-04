@@ -124,17 +124,30 @@ final class JournalLine: Codable, Identifiable, ObservableObject, Hashable {
     var credit: Decimal
     var entryID: UUID?
     var accountID: UUID?
+    @available(*, deprecated, message: "使用 resolvedAccountCode")
     var accountCode: String = ""
+    @available(*, deprecated, message: "使用 resolvedAccountName")
     var accountName: String = ""
 
-    init(summary: String = "", debit: Decimal = .zero, credit: Decimal = .zero,
-         accountCode: String = "", accountName: String = "") {
+    /// 从科目表反查科目编码
+    @MainActor
+    var resolvedAccountCode: String {
+        guard let aid = accountID else { return self.accountCode }
+        return DataStore.shared.accounts.first(where: { $0.id == aid })?.code ?? self.accountCode
+    }
+    /// 从科目表反查科目名称
+    @MainActor
+    var resolvedAccountName: String {
+        guard let aid = accountID else { return self.accountName }
+        return DataStore.shared.accounts.first(where: { $0.id == aid })?.name ?? self.accountName
+    }
+
+    init(summary: String = "", debit: Decimal = .zero, credit: Decimal = .zero) {
         self.id = UUID()
         self.summary = summary
         self.debit = debit
         self.credit = credit
-        self.accountCode = accountCode
-        self.accountName = accountName
+        // accountCode 和 accountName 保留默认空值
     }
 }
 
@@ -159,6 +172,27 @@ final class PeriodClose: Codable, Identifiable, ObservableObject, Hashable {
     }
 }
 
+// MARK: - 审计日志
+struct AuditLog: Codable, Identifiable, Hashable {
+    let id: UUID
+    let timestamp: Date
+    let action: String      // create / update / delete / post / unpost / closePeriod
+    let detail: String
+    let user: String
+    let entityID: String?
+    let entityType: String? // Company / JournalEntry / Account / PeriodClose
+
+    init(action: String, detail: String, user: String, entityID: String? = nil, entityType: String? = nil) {
+        self.id = UUID()
+        self.timestamp = Date()
+        self.action = action
+        self.detail = detail
+        self.user = user
+        self.entityID = entityID
+        self.entityType = entityType
+    }
+}
+
 // MARK: - 数据持久化 (MainActor)
 @MainActor
 final class DataStore: ObservableObject {
@@ -168,6 +202,7 @@ final class DataStore: ObservableObject {
     @Published var accounts: [Account] = []
     @Published var journalEntries: [JournalEntry] = []
     @Published var periodCloses: [PeriodClose] = []
+    @Published var auditLogs: [AuditLog] = []
 
     /// 数据版本号，用于检测 JSON schema 变更
     static let dataVersion = 1
@@ -242,6 +277,7 @@ final class DataStore: ObservableObject {
         accounts = loadJSON("accounts.json") ?? []
         journalEntries = loadJSON("entries.json") ?? []
         periodCloses = loadJSON("periodCloses.json") ?? []
+        auditLogs = loadJSON("auditLogs.json") ?? []
     }
 
     /// 从磁盘重新加载数据（供 AI Agent 写入后被 App 调用）
@@ -250,6 +286,23 @@ final class DataStore: ObservableObject {
         // 手动触发 SwiftUI 更新
         objectWillChange.send()
         print("[DataStore] 已从磁盘刷新数据: \(companies.count) 公司, \(accounts.count) 科目, \(journalEntries.count) 凭证")
+    }
+
+    // MARK: - 审计日志
+    func addAuditLog(action: String, detail: String, user: String = "system",
+                     entityID: String? = nil, entityType: String? = nil) {
+        let log = AuditLog(action: action, detail: detail, user: user,
+                           entityID: entityID, entityType: entityType)
+        auditLogs.append(log)
+        saveJSON("auditLogs.json", data: auditLogs)
+        // 保留最近1000条
+        if auditLogs.count > 1000 {
+            auditLogs = Array(auditLogs.suffix(1000))
+        }
+    }
+
+    func loadAuditLogs() {
+        auditLogs = loadJSON("auditLogs.json") ?? []
     }
 
     private func saveJSON<T: Codable>(_ filename: String, data: T) {
@@ -336,6 +389,11 @@ final class DataStore: ObservableObject {
     }
     @discardableResult
     func updateEntry(_ entry: JournalEntry) -> Bool {
+        // 已过账凭证禁止修改
+        guard !entry.isPosted else {
+            print("凭证 \(entry.number) 已过账，不可修改")
+            return false
+        }
         // 结账锁定期间不可修改
         if let cid = entry.companyID {
             let ey = Calendar.current.component(.year, from: entry.date)
@@ -353,6 +411,11 @@ final class DataStore: ObservableObject {
     }
     @discardableResult
     func deleteEntry(_ entry: JournalEntry) -> Bool {
+        // 已过账凭证禁止删除
+        guard !entry.isPosted else {
+            print("凭证 \(entry.number) 已过账，不可删除")
+            return false
+        }
         // 结账锁定期间不可删除
         if let cid = entry.companyID {
             let ey = Calendar.current.component(.year, from: entry.date)
@@ -468,25 +531,25 @@ final class DataStore: ObservableObject {
         let e1 = JournalEntry(number: "记-2026-0001", date: date(year: 2026, month: 5, day: 31)!, summary: "销售收入入账", isPosted: true)
         e1.companyID = company.id
         let l1a = JournalLine(summary: "银行存款", debit: 100000, credit: 0)
-        l1a.accountID = bank.id; l1a.accountCode="1002"; l1a.accountName="银行存款"; l1a.entryID = e1.id
+        l1a.accountID = bank.id; l1a.entryID = e1.id
         let l1b = JournalLine(summary: "主营业务收入", debit: 0, credit: 100000)
-        l1b.accountID = revenue.id; l1b.accountCode="5001"; l1b.accountName="主营业务收入"; l1b.entryID = e1.id
+        l1b.accountID = revenue.id; l1b.entryID = e1.id
         e1.lines = [l1a, l1b]
 
         let e2 = JournalEntry(number: "记-2026-0002", date: date(year: 2026, month: 5, day: 31)!, summary: "结转销售成本", isPosted: true)
         e2.companyID = company.id
         let l2a = JournalLine(summary: "主营业务成本", debit: 60000, credit: 0)
-        l2a.accountID = cost.id; l2a.accountCode="6001"; l2a.accountName="主营业务成本"; l2a.entryID = e2.id
+        l2a.accountID = cost.id; l2a.entryID = e2.id
         let l2b = JournalLine(summary: "库存商品", debit: 0, credit: 60000)
-        l2b.accountID = inventory.id; l2b.accountCode="1405"; l2b.accountName="库存商品"; l2b.entryID = e2.id
+        l2b.accountID = inventory.id; l2b.entryID = e2.id
         e2.lines = [l2a, l2b]
 
         let e3 = JournalEntry(number: "记-2026-0003", date: date(year: 2026, month: 6, day: 1)!, summary: "支付管理人员工资", isPosted: true)
         e3.companyID = company.id
         let l3a = JournalLine(summary: "管理费用", debit: 15000, credit: 0)
-        l3a.accountID = management.id; l3a.accountCode="6602"; l3a.accountName="管理费用"; l3a.entryID = e3.id
+        l3a.accountID = management.id; l3a.entryID = e3.id
         let l3b = JournalLine(summary: "应付职工薪酬", debit: 0, credit: 15000)
-        l3b.accountID = salary.id; l3b.accountCode="2211"; l3b.accountName="应付职工薪酬"; l3b.entryID = e3.id
+        l3b.accountID = salary.id; l3b.entryID = e3.id
         e3.lines = [l3a, l3b]
 
         journalEntries = [e1, e2, e3]

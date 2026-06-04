@@ -4,23 +4,16 @@ import Foundation
 @MainActor
 struct AccountingEngine {
 
-    // BUG-5: BUG-5: 凭证编号连续（填补已删除编号的空缺，确保不跳号）
+    // MARK: - 凭证编号（单调递增，删除不补号）
     static func nextVoucherNumber(for company: Company) -> String {
         let year = Calendar.current.component(.year, from: Date())
         let prefix = "记-\(year)-"
         let entries = DataStore.shared.entries(for: company.id)
-        // 收集所有已使用的序号
         let usedNumbers = entries
             .filter { $0.number.hasPrefix(prefix) }
             .compactMap { Int($0.number.dropFirst(prefix.count)) }
-            .sorted()
-        // 找到最小的空缺序号
-        var candidate = 1
-        for used in usedNumbers {
-            if candidate < used { break }
-            candidate = used + 1
-        }
-        return "\(prefix)\(String(format: "%04d", candidate))"
+        let maxNumber = usedNumbers.max() ?? 0
+        return "\(prefix)\(String(format: "%04d", maxNumber + 1))"
     }
 
     /// 余额（截止日期）
@@ -65,6 +58,10 @@ struct AccountingEngine {
     // MARK: - 期末结转
     static func closePeriod(for company: Company, year: Int, month: Int) throws {
         let store = DataStore.shared
+        // 检查是否已结账
+        guard !store.isPeriodClosed(companyID: company.id, year: year, month: month) else {
+            throw AccountingError.periodAlreadyClosed
+        }
         let accounts = store.accounts(for: company.id)
         guard let profitAccount = accounts.first(where: { $0.code == "4103" }) else {
             throw AccountingError.noProfitAccount
@@ -145,41 +142,18 @@ struct AccountingEngine {
         let accts = DataStore.shared.accounts(for: company.id)
         let allActive = accts.filter { $0.isActive }
 
-        let revCodes: Set<String> = ["5001","5051","5111"]
-        let revenueLines = allActive.filter { revCodes.contains($0.code) }.sorted { $0.code < $1.code }
+        // 收入：基于 category == .revenue，不再硬编码 code
+        let revenueLines = allActive.filter { $0.category == .revenue }.sorted { $0.code < $1.code }
             .map { a -> IncomeLine in
                 let p = periodBalance(for: a, year: year, month: month)
                 let c = cumulativePeriodBalance(for: a, year: year, month: month)
                 return IncomeLine(code: a.code, name: a.name, amount: p.credit - p.debit, cumulativeAmount: c.credit - c.debit)
             }
 
-        let costItems: [(String, String, Set<String>)] = [
-            ("营业成本", "6001", ["6001","6051"]),
-            ("税金及附加", "6401", ["6401","6402","6403"]),
-            ("销售费用", "6601", ["6601"]),
-            ("管理费用", "6602", ["6602"]),
-            ("财务费用", "6603", ["6603"]),
-            ("所得税费用", "6801", ["6801"]),
-        ]
-
+        // 费用：基于 category == .expense，动态分组
+        let expenseAccounts = allActive.filter { $0.category == .expense }.sorted { $0.code < $1.code }
         var expenseLines: [IncomeLine] = []
-        var usedCodes = Set<String>()
-        for (label, code, codes) in costItems {
-            usedCodes.formUnion(codes)
-            let matching = allActive.filter { codes.contains($0.code) }
-            var totalAmt: Decimal = 0
-            var totalCum: Decimal = 0
-            for a in matching {
-                let p = periodBalance(for: a, year: year, month: month)
-                let c = cumulativePeriodBalance(for: a, year: year, month: month)
-                totalAmt += p.debit - p.credit
-                totalCum += c.debit - c.credit
-            }
-            expenseLines.append(IncomeLine(code: code, name: label, amount: totalAmt, cumulativeAmount: totalCum))
-        }
-
-        let otherExpense = allActive.filter { $0.category == .expense && !usedCodes.contains($0.code) }.sorted { $0.code < $1.code }
-        for a in otherExpense {
+        for a in expenseAccounts {
             let p = periodBalance(for: a, year: year, month: month)
             let c = cumulativePeriodBalance(for: a, year: year, month: month)
             let amt = p.debit - p.credit
@@ -334,7 +308,9 @@ struct AccountingEngine {
 
     private static func makeLine(summary: String, debit: Decimal, credit: Decimal, account: Account) -> JournalLine {
         let l = JournalLine(summary: summary, debit: debit, credit: credit)
-        l.accountID = account.id; l.accountCode = account.code; l.accountName = account.name
+        l.accountID = account.id
+        // 保留 accountCode/accountName 供旧数据兼容，新代码通过 resolvedAccount* 取值
+        l.accountCode = account.code; l.accountName = account.name
         return l
     }
 }
@@ -432,11 +408,13 @@ enum AccountingError: Error, LocalizedError {
     case noProfitAccount
     case notBalanced
     case alreadyPosted
+    case periodAlreadyClosed
     var errorDescription: String? {
         switch self {
         case .noProfitAccount: return "未找到本年利润科目(4103)"
         case .notBalanced: return "借贷不平"
         case .alreadyPosted: return "凭证已过账"
+        case .periodAlreadyClosed: return "该期间已结账，不可重复结转"
         }
     }
 }

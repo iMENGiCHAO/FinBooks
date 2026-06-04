@@ -168,8 +168,8 @@ struct EntryTable: View {
                                                 VStack(alignment: .leading, spacing: 1) {
                                                     ForEach(Array(e.lines.prefix(3)), id: \.id) { line in
                                                         HStack(spacing: 2) {
-                                                            let code = line.accountCode.isEmpty ? dataStore.accounts.first(where: { $0.id == line.accountID })?.code ?? "" : line.accountCode
-                                                            let name = line.accountName.isEmpty ? dataStore.accounts.first(where: { $0.id == line.accountID })?.name ?? "" : line.accountName
+                                                            let code = line.resolvedAccountCode
+                                                            let name = line.resolvedAccountName
                                                             Text(code).font(.caption2).foregroundStyle(.tertiary)
                                                             Text(name).font(.caption2).foregroundStyle(.secondary)
                                                             if line.debit > 0 {
@@ -501,7 +501,7 @@ struct EntryEditor: View {
         }
     }
 
-    private func save() {
+    func save() {
         let trimmedSummary = summary.trimmingCharacters(in: .whitespaces)
         guard !trimmedSummary.isEmpty else {
             alertMessage = "请输入凭证摘要"; showAlert = true; return
@@ -523,9 +523,13 @@ struct EntryEditor: View {
         // 先构建新的lines（临时），确认保存成功后再替换
         var newLines: [JournalLine] = []
         for li in lines where li.accountID != nil && (li.debit > 0 || li.credit > 0) {
-            let line = JournalLine(summary: li.summary, debit: li.debit, credit: li.credit,
-                                   accountCode: li.accountCode, accountName: li.accountName)
+            let line = JournalLine(summary: li.summary, debit: li.debit, credit: li.credit)
             line.accountID = li.accountID
+            // 保留兼容字段
+            if let aid = li.accountID, let acct = DataStore.shared.accounts.first(where: { $0.id == aid }) {
+                line.accountCode = acct.code
+                line.accountName = acct.name
+            }
             newLines.append(line)
         }
 
@@ -770,19 +774,9 @@ struct EntryDetailLineRow: View {
     let entrySummary: String  // 凭证头摘要，用于分录行摘要为空时显示
 
     var body: some View {
-        // 反查科目信息（兼容旧数据）
-        let displayCode: String
-        let displayName: String
-        if !line.accountCode.isEmpty {
-            displayCode = line.accountCode
-            displayName = line.accountName
-        } else if let aid = line.accountID, let acct = dataStore.accounts.first(where: { $0.id == aid }) {
-            displayCode = acct.code
-            displayName = acct.name
-        } else {
-            displayCode = line.accountCode
-            displayName = line.accountName.isEmpty ? "(无科目)" : line.accountName
-        }
+        // 反查科目信息（优先使用 resolvedAccount*）
+        let displayCode = line.resolvedAccountCode
+        let displayName = line.resolvedAccountName
         // 分录行摘要为空时，显示凭证头摘要
         let displaySummary = line.summary.isEmpty ? entrySummary : line.summary
 

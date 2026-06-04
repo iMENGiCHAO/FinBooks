@@ -106,10 +106,12 @@ struct DashboardView: View {
     }
 
     private var netProfit: Decimal {
+        let periodStart = Calendar.current.date(from: DateComponents(year: currentPeriod.year, month: currentPeriod.month, day: 1)) ?? Date()
+        let periodEnd = Calendar.current.date(byAdding: DateComponents(month: 1, day: -1), to: periodStart)?.endOfDay ?? Date()
         let revenue = accounts.filter { $0.isActive && $0.category == .revenue }
-            .reduce(Decimal.zero) { $0 + AccountingEngine.balance(for: $1) }
+            .reduce(Decimal.zero) { $0 + AccountingEngine.balance(for: $1, upTo: periodEnd) - AccountingEngine.beginningBalance(for: $1, asOf: periodStart) }
         let expense = accounts.filter { $0.isActive && $0.category == .expense }
-            .reduce(Decimal.zero) { $0 + AccountingEngine.balance(for: $1) }
+            .reduce(Decimal.zero) { $0 + AccountingEngine.balance(for: $1, upTo: periodEnd) - AccountingEngine.beginningBalance(for: $1, asOf: periodStart) }
         return revenue - expense
     }
 }
