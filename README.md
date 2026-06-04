@@ -1,15 +1,16 @@
 # FinBooks
 
 <p align="center">
-  <b>中国中小微企业财务管理软件 — macOS 原生应用</b>
+  <b>中小微企业财务管理软件 — macOS 原生应用</b>
   <br>
-  <i>符合中国会计准则 · 轻量离线 · 数据自主可控</i>
+  <i>符合会计准则 · 轻量离线 · 数据自主可控 · 支持 AI Agent 交互</i>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-14.0%2B-blue" alt="macOS">
-  <img src="https://img.shields.io/badge/Swift-5.9-orange" alt="Swift">
+  <img src="https://img.shields.io/badge/Swift-5.10-orange" alt="Swift">
   <img src="https://img.shields.io/badge/架构-Universal%20Binary-brightgreen" alt="Universal">
+  <img src="https://img.shields.io/badge/AI%20Agent-Hermes-8A2BE2" alt="Agent">
   <img src="https://img.shields.io/badge/许可-MIT-green" alt="License">
 </p>
 
@@ -27,7 +28,7 @@
 
 **多公司管理** — 同一应用内管理多家公司账簿，数据完全隔离，互不干扰
 
-**标准科目表** — 基于中国会计准则的科目编码体系（1001~6901），新建公司自动建账
+**标准科目表** — 基于通用会计准则的科目编码体系（1001~6901），新建公司自动建账
 
 **凭证管理** — 新增、编辑、删除、过账、反过账，支持多分录借贷行，操作流畅
 
@@ -40,6 +41,8 @@
 **财务报表** — 资产负债表、利润表、总分类账，一键导出标准格式 PDF
 
 **科目删除保护** — 已被凭证引用的科目不可删除，防止数据不一致
+
+**AI Agent 集成** — 支持通过 Hermes Agent 等 AI 工具以自然语言交互操作财务数据
 
 **离线运行** — 本地存储，无需网络，数据完全由你掌控
 
@@ -88,6 +91,64 @@ open archive/
 
 ---
 
+## AI Agent 集成
+
+FinBooks v1.1.0+ 原生支持通过 AI Agent 以自然语言交互操作财务数据。
+
+### 架构
+
+```
+FinBooks App                 AI Agent (Hermes / Claude Code / Codex)
+    │                                │
+    │  refreshFromDisk()             │  finbooks_tools.py
+    │  (Cmd+Shift+R 刷新)            │  (直接读写 JSON)
+    │                                │
+    └──────────┬─────────────────────┘
+               ▼
+    ~/Library/Application Support/com.finbooks.app/
+    ├── companies.json
+    ├── accounts.json
+    ├── entries.json
+    └── periodCloses.json
+```
+
+### 支持的 AI Agent 操作
+
+| 操作 | 说明 |
+|---|---|
+| 查询公司列表 | 列出所有公司及详细信息 |
+| 查看科目表 | 按分类展示科目编码和名称 |
+| 创建凭证 | 输入业务描述，Agent 自动生成分录并校验借贷平衡 |
+| 利润表分析 | 按期间生成利润表（本期/累计） |
+| 资产负债表 | 按截止日期生成报表 |
+| 总分类账 | 按科目逐笔展示借贷和余额变化 |
+| 异常检测 | 自动扫描不平凭证、大额异常、重复凭证 |
+| 费用趋势 | 按月展示各科目费用变化 |
+| 期间结账 | 锁定指定期间的编辑操作 |
+
+### 快速使用
+
+```bash
+# 在 Hermes Agent 中加载技能
+skill_view("finbooks-agent")
+
+# 查询科目表
+python3 finbooks_tools.py accounts "示例科技有限公司"
+
+# 创建凭证
+python3 finbooks_tools.py create "示例科技有限公司" "2026-06-04" "支付货款" "1002:50000:0,2202:0:50000"
+
+# 查看利润表
+python3 finbooks_tools.py income "示例科技有限公司" 2026 6
+
+# 智能分析
+python3 finbooks_tools.py analyze "示例科技有限公司"
+```
+
+Agent 写入数据后，在 App 中按 **`Cmd + Shift + R`** 即可从磁盘刷新，无需重启应用。
+
+---
+
 ## 功能详解
 
 ### 公司管理
@@ -99,7 +160,7 @@ open archive/
 
 ### 科目表
 
-默认创建贴合中国会计准则的全量科目，覆盖六大类别：
+默认创建贴合会计准则的全量科目，覆盖六大类别：
 
 | 类别 | 编码范围 | 包含科目 |
 |---|---|---|
@@ -150,12 +211,12 @@ open archive/
 
 | 报表名称 | 说明 |
 |---|---|
-| **资产负债表**（会企01表） | 展示截至指定日期的资产、负债、所有者权益结构 |
-| **利润表**（会企02表） | 展示指定期间的收入、成本、费用及净利润 |
+| **资产负债表** | 展示截至指定日期的资产、负债、所有者权益结构 |
+| **利润表** | 展示指定期间的收入、成本、费用及净利润 |
 | **总分类账** | 按科目汇总所有凭证，展示期初余额、本期发生额、期末余额 |
 
 **PDF 导出特点：**
-- NSView 原生渲染引擎，中文字体完美嵌入
+- NSView 原生渲染引擎，字体完美嵌入
 - 标准表格排版，金额千分位格式
 - A4 纵向布局，适合打印和存档
 - 文件名包含公司名称和日期，方便归档管理
@@ -168,8 +229,8 @@ open archive/
 FinBooks
 │
 ├─ SwiftUI (视图层)
-│  ├─ 凭证录入
-│  ├─ 科目表
+│  ├─ 凭证录入          AI Agent 可在此通过 JSON 写入
+│  ├─ 科目表             数据后按 Cmd+Shift+R 刷新
 │  ├─ 报表与导出
 │  ├─ 凭证列表
 │  ├─ 期末结账
@@ -183,11 +244,15 @@ FinBooks
 │  ├─ 借贷校验
 │  └─ 科目表管理
 │
-└─ DataStore (数据层)
-   ├─ Company
-   ├─ Account
-   ├─ JournalEntry
-   └─ PeriodClose
+├─ DataStore (数据层)
+│  ├─ Company
+│  ├─ Account
+│  ├─ JournalEntry
+│  └─ PeriodClose
+│
+└─ finbooks-agent (AI Agent 集成)
+   ├─ finbooks_tools.py
+   └─ SKILL.md
 ```
 
 ### 技术栈
@@ -197,16 +262,18 @@ FinBooks
 | UI 框架 | SwiftUI 3+ |
 | 系统框架 | AppKit（PDF 导出） |
 | 持久化 | JSON 文件存储（轻量级，无需数据库引擎） |
-| 语言 | Swift 5.9+ |
+| 语言 | Swift 5.10+ |
 | 最低部署目标 | macOS 14.0 |
 | 构建方式 | Swift Package Manager + Xcode |
 | 支持架构 | Apple Silicon + Intel（Universal Binary） |
+| AI Agent | Hermes / Claude Code / Codex（通过 finbooks_tools.py 集成） |
 
 ### 架构特点
 
 - **分层设计** — 视图层 → 业务逻辑层 → 数据层，职责清晰，易于维护
 - **响应式数据流** — `@Published` + `@ObservableObject` 驱动 UI 自动刷新
 - **离线优先** — 所有数据本地存储，不依赖任何外部服务或网络连接
+- **Agent 友好** — JSON 文件结构直接对外开放，AI Agent 可独立读写，App 端一键刷新
 
 ---
 
@@ -219,6 +286,7 @@ FinBooks
 - **零外部依赖** — 不调用任何第三方 API 或云服务
 
 > **备份建议**：定期备份 `~/Library/Application Support/com.finbooks.app/` 目录即可。
+> 应用每次保存数据时自动生成带时间戳的备份文件（保留 30 天）。
 
 ---
 
@@ -228,7 +296,7 @@ FinBooks
 
 - macOS 14.0+ 开发环境
 - Xcode 15.0+ 或 Command Line Tools
-- Swift 5.9+
+- Swift 5.10+
 
 ### 编译
 
@@ -254,15 +322,26 @@ swift run
 
 ---
 
+## 快捷键
+
+| 快捷键 | 功能 |
+|---|---|
+| `Cmd + Shift + R` | 从磁盘刷新数据（AI Agent 写入后使用） |
+| `Cmd + Enter` | 保存当前凭证 |
+| `Cmd + .` | 取消编辑 |
+
+---
+
 ## 路线图
 
-当前版本 `v1.0.0` 为基础稳定版，后续规划：
+当前版本 `v1.1.0`，后续规划：
 
 ### v1.x — 功能完善
 - [ ] Excel/CSV 凭证批量导入导出
 - [ ] 现金流量表
 - [ ] 账簿打印（总账、明细账、日记账）
 - [ ] 多币种支持
+- [ ] AI Agent 自然语言凭证生成
 
 ### v2.x — 企业级特性
 - [ ] 用户权限管理（会计/出纳/审核角色分离）
