@@ -3,11 +3,11 @@ import AppKit
 import SwiftUI
 
 // ============================================================
-//  PDF 导出引擎 v10 — NSView + NSAttributedString 原生排版
-//  修复:
+//  PDF 导出引擎 v11 — NSView + NSAttributedString 原生排版
+//  修正: isFlipped=true 坐标系下 y 方向
 //  1. 使用 NSView.dataWithPDF 机制，确保中文字体正确嵌入
-//  2. 资产负债表按中国会计准则格式（会企01表）
-//  3. 利润表按中国会计准则格式（会企02表）
+//  2. 资产负债表按标准格式
+//  3. 利润表按标准格式
 //  4. 所有单元格边框 + 文字居中/右对齐
 // ============================================================
 
@@ -27,12 +27,14 @@ struct PDFExporter {
 
     // MARK: - NSView PDF 核心
     /// 使用 NSView.dataWithPDF 机制，确保中文字体正确嵌入
+    /// 注意：FlippedPDFView 继承 NSView 并 isFlipped=true，
+    ///       所以 y=0 在左上角，y 增长方向向下。
+    ///       绘制代码应从 y=margin 开始，每次 y += rowH（向下画）。
     private static func _renderCGPDF(filename: String, viewWidth: CGFloat = pageW, viewHeight: CGFloat = pageH,
                                       render: @escaping (CGContext, CGRect) -> Void) -> URL? {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("_pdf_\(UUID().uuidString).pdf")
 
-        // 用 NSView.dataWithPDF 生成 PDF，确保中文字体正确嵌入
         let pdfView = FlippedPDFView(frame: CGRect(x: 0, y: 0, width: viewWidth, height: viewHeight), renderBlock: render)
         let data = pdfView.dataWithPDF(inside: pdfView.bounds)
 
@@ -43,7 +45,6 @@ struct PDFExporter {
             return nil
         }
 
-        // 复制到目标位置
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
@@ -70,7 +71,6 @@ struct PDFExporter {
         required init?(coder: NSCoder) { nil }
         override func draw(_ dirtyRect: CGRect) {
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-            // 白色背景
             ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             ctx.fill(bounds)
             renderBlock(ctx, bounds)
@@ -85,7 +85,6 @@ struct PDFExporter {
                           alignment: NSTextAlignment = .left,
                           color: NSColor = .black, lineBreak: NSLineBreakMode = .byWordWrapping) {
         guard !text.isEmpty else { return }
-        // 使用 PingFang SC（苹方）确保中文字体在 PDF 上下文中正确渲染
         let fontName: String = bold ? "PingFangSC-Semibold" : "PingFangSC-Regular"
         let font = NSFont(name: fontName, size: fontSize)
             ?? (bold ? NSFont.boldSystemFont(ofSize: fontSize) : NSFont.systemFont(ofSize: fontSize))
@@ -104,13 +103,11 @@ struct PDFExporter {
                           alignment: NSTextAlignment = .left,
                           color: NSColor = .black,
                           borderColor: CGColor = CGColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 0.6)) {
-        // 边框
         let ctx = NSGraphicsContext.current!.cgContext
         ctx.setStrokeColor(borderColor)
         ctx.setLineWidth(0.4)
         ctx.stroke(rect)
 
-        // 文字（留 3pt padding）
         let pr: CGFloat = 3
         let textRect = CGRect(x: rect.minX + pr, y: rect.minY + 1,
                               width: max(0, rect.width - pr * 2),
@@ -130,7 +127,7 @@ struct PDFExporter {
         ctx.strokePath()
     }
 
-    // MARK: - 资产负债表（会企01表标准格式）
+    // MARK: - 资产负债表
 
     /// 标准资产负债表格式（左右分栏：资产/负债及所有者权益）
     static func exportBalanceSheet(_ report: BalanceSheetReport) -> URL? {
@@ -148,42 +145,41 @@ struct PDFExporter {
 
         return _renderCGPDF(filename: "资产负债表_\(FMT.date(report.date)).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
-            var y: CGFloat = totalHeight - margin - 26
+            var y: CGFloat = margin
 
             // 标题
-            drawText("资产负债表", rect: CGRect(x: 0, y: y - 22, width: pageW, height: 26),
+            drawText("资产负债表", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 20, bold: true, alignment: .center)
-            y -= 24
-            drawText("会企01表", rect: CGRect(x: 0, y: y - 14, width: pageW, height: 14),
+            y += 26
+            drawText("会企01表", rect: CGRect(x: 0, y: y, width: pageW, height: 14),
                      fontSize: 9, alignment: .center)
-            y -= 18
+            y += 16
             drawText("编制单位：\(report.companyName)",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW * 0.5, height: 14), fontSize: 9)
-            drawText("单位：元", rect: CGRect(x: margin + contentW * 0.5, y: y - 14, width: contentW * 0.5, height: 14),
+                     rect: CGRect(x: margin, y: y, width: contentW * 0.5, height: 14), fontSize: 9)
+            drawText("单位：元", rect: CGRect(x: margin + contentW * 0.5, y: y, width: contentW * 0.5, height: 14),
                      fontSize: 9, alignment: .right)
-            y -= 18
+            y += 16
             drawText("\(FMT.date(report.date))",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW, height: 14),
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14),
                      fontSize: 9, alignment: .right)
-            y -= 18
+            y += 16
 
             // 表头行
             var ox = margin
             for (t, w) in [("资产", cName), ("行次", cSeq), ("期末余额", cEnd), ("年初余额", cBeg)] {
-                drawCell(t, rect: CGRect(x: ox, y: y - rowH, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
+                drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
             }
             ox = margin + sideW + gap
             for (t, w) in [("负债及所有者权益", cName), ("行次", cSeq), ("期末余额", cEnd), ("年初余额", cBeg)] {
-                drawCell(t, rect: CGRect(x: ox, y: y - rowH, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
+                drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
             }
-            y -= rowH
+            y += rowH
 
             // 数据行
             for i in 0..<maxRows {
-                let cellY = y - rowH
-                // 左栏
+                let cellY = y
                 if i < leftItems.count {
                     let (n, eb, bb) = leftItems[i]
                     drawCell(n, rect: CGRect(x: margin, y: cellY, width: cName, height: rowH), fontSize: 8)
@@ -193,7 +189,6 @@ struct PDFExporter {
                 } else {
                     drawCell("", rect: CGRect(x: margin, y: cellY, width: sideW, height: rowH))
                 }
-                // 右栏
                 if i < rightItems.count {
                     let (n, eb, bb) = rightItems[i]
                     let ro = margin + sideW + gap
@@ -205,14 +200,14 @@ struct PDFExporter {
                     let ro = margin + sideW + gap
                     drawCell("", rect: CGRect(x: ro, y: cellY, width: sideW, height: rowH))
                 }
-                y -= rowH
+                y += rowH
             }
 
-            y -= 4
+            y += 4
 
             // 合计行
             func drawTotal(rowY: inout CGFloat, leftLabel: String, leftVal: String?, rightLabel: String, rightVal: String) {
-                let rY = rowY - rowH
+                let rY = rowY
                 let ro = margin + sideW + gap
                 drawCell(leftLabel, rect: CGRect(x: margin, y: rY, width: cName + cSeq, height: rowH), fontSize: 8, bold: true)
                 if let v = leftVal {
@@ -224,7 +219,7 @@ struct PDFExporter {
                 drawCell(rightLabel, rect: CGRect(x: ro, y: rY, width: cName + cSeq, height: rowH), fontSize: 8, bold: true)
                 drawCell(rightVal, rect: CGRect(x: ro + cName + cSeq, y: rY, width: cEnd, height: rowH), fontSize: 8, bold: true, alignment: .right)
                 drawCell("", rect: CGRect(x: ro + cName + cSeq + cEnd, y: rY, width: cBeg, height: rowH))
-                rowY -= rowH
+                rowY += rowH
             }
 
             drawTotal(rowY: &y, leftLabel: "资产总计",
@@ -239,15 +234,15 @@ struct PDFExporter {
                       rightVal: rmb(report.totalLE))
 
             // 签字
-            y -= rowH
+            y += rowH
             drawLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + contentW, y: y), width: 1.0)
-            y -= 16
+            y += 16
             drawText("企业负责人：__________    主管会计：__________    制表人：__________",
-                     rect: CGRect(x: margin, y: y - 12, width: contentW, height: 14), fontSize: 9, alignment: .center)
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9, alignment: .center)
         }
     }
 
-    // MARK: - 利润表（会企02表标准格式）
+    // MARK: - 利润表
 
     static func exportIncomeStatement(_ report: IncomeStatementReport) -> URL? {
         let cProj = contentW * 0.34
@@ -255,13 +250,11 @@ struct PDFExporter {
         let cAmt  = contentW * 0.28
         let cCum  = contentW * 0.28
 
-        // 构建行
         var rows: [(String, String, String, Bool)] = []
         rows.append(("一、营业收入", rmb(report.totalRevenue), rmb(report.totalRevenueCumulative), true))
         for rev in report.revenues {
             rows.append(("  \(rev.name)", rmb(rev.amount), rmb(rev.cumulativeAmount), false))
         }
-        // 固定的标准费用行
         let feeDefs: [(String, String)] = [
             ("减：营业成本", "6001"), ("    税金及附加", "6401"),
             ("    销售费用", "6601"), ("    管理费用", "6602"), ("    财务费用", "6603")
@@ -284,47 +277,47 @@ struct PDFExporter {
 
         return _renderCGPDF(filename: "利润表_\(report.year)_\(String(format: "%02d", report.month)).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
-            var y: CGFloat = totalHeight - margin - 26
+            var y: CGFloat = margin
 
-            drawText("利润表", rect: CGRect(x: 0, y: y - 22, width: pageW, height: 26),
+            drawText("利润表", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 20, bold: true, alignment: .center)
-            y -= 24
-            drawText("会企02表", rect: CGRect(x: 0, y: y - 14, width: pageW, height: 14),
+            y += 26
+            drawText("会企02表", rect: CGRect(x: 0, y: y, width: pageW, height: 14),
                      fontSize: 9, alignment: .center)
-            y -= 18
+            y += 16
             drawText("编制单位：\(report.companyName)",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW * 0.5, height: 14), fontSize: 9)
-            drawText("单位：元", rect: CGRect(x: margin + contentW * 0.5, y: y - 14, width: contentW * 0.5, height: 14),
+                     rect: CGRect(x: margin, y: y, width: contentW * 0.5, height: 14), fontSize: 9)
+            drawText("单位：元", rect: CGRect(x: margin + contentW * 0.5, y: y, width: contentW * 0.5, height: 14),
                      fontSize: 9, alignment: .right)
-            y -= 18
+            y += 16
             drawText("\(report.year)年\(report.month)月",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW, height: 14),
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14),
                      fontSize: 9, alignment: .right)
-            y -= 18
+            y += 16
 
             // 表头
             var ox = margin
             for (t, w) in [("项目", cProj), ("行次", cSeq), ("本期金额", cAmt), ("本年累计", cCum)] {
-                drawCell(t, rect: CGRect(x: ox, y: y - rowH, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
+                drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
             }
-            y -= rowH
+            y += rowH
 
             // 数据行
             for (label, amt, cum, isBold) in rows {
-                let rY = y - rowH
+                let rY = y
                 drawCell(label, rect: CGRect(x: margin, y: rY, width: cProj, height: rowH), fontSize: 8, bold: isBold)
                 drawCell("", rect: CGRect(x: margin + cProj, y: rY, width: cSeq, height: rowH), alignment: .center)
                 drawCell(amt, rect: CGRect(x: margin + cProj + cSeq, y: rY, width: cAmt, height: rowH), fontSize: 8, bold: isBold, alignment: .right)
                 drawCell(cum, rect: CGRect(x: margin + cProj + cSeq + cAmt, y: rY, width: cCum, height: rowH), fontSize: 8, bold: isBold, alignment: .right)
-                y -= rowH
+                y += rowH
             }
 
-            y -= rowH
+            y += rowH
             drawLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + contentW, y: y), width: 1.0)
-            y -= 16
+            y += 16
             drawText("企业负责人：__________    主管会计：__________    制表人：__________",
-                     rect: CGRect(x: margin, y: y - 12, width: contentW, height: 14), fontSize: 9, alignment: .center)
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9, alignment: .center)
         }
     }
 
@@ -340,33 +333,33 @@ struct PDFExporter {
 
         return _renderCGPDF(filename: "总分类账_\(report.account.code)_\(report.account.name).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
-            var y: CGFloat = totalHeight - margin - 26
+            var y: CGFloat = margin
 
-            drawText("总分类账", rect: CGRect(x: 0, y: y - 22, width: pageW, height: 26),
+            drawText("总分类账", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 18, bold: true, alignment: .center)
-            y -= 26
+            y += 26
             drawText("科目：\(report.account.code) \(report.account.name)    类别：\(report.account.category.rawValue)",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW, height: 14), fontSize: 9)
-            y -= 18
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9)
+            y += 16
             drawText("\(report.year)年\(report.month)月",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW, height: 14), fontSize: 9, alignment: .right)
-            y -= 18
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9, alignment: .right)
+            y += 16
             let d0 = report.openingBalance >= 0 ? "借" : "贷"
             drawText("期初余额：\(d0)  \(rmb(abs(report.openingBalance)))",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW, height: 14), fontSize: 9)
-            y -= 20
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9)
+            y += 18
 
             // 表头
             let header = ["日期", "凭证号", "摘要", "借方金额", "贷方金额", "方向", "余额"]
             var ox = margin
             for (w, t) in zip(cols, header) {
-                drawCell(t, rect: CGRect(x: ox, y: y - rowH, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
+                drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
             }
-            y -= rowH
+            y += rowH
 
             for line in report.lines {
-                let rY = y - rowH
+                let rY = y
                 ox = margin
                 let vals = [FMT.date(line.date), line.voucherNumber, line.summary,
                             line.debit > 0 ? rmb(line.debit) : "",
@@ -377,14 +370,13 @@ struct PDFExporter {
                     drawCell(v, rect: CGRect(x: ox, y: rY, width: cols[i], height: rowH), fontSize: 8, alignment: al)
                     ox += cols[i]
                 }
-                y -= rowH
+                y += rowH
             }
 
-            y -= 4
-            // 合计
+            y += 4
             let pd = report.lines.reduce(Decimal.zero) { $0 + $1.debit }
             let pc = report.lines.reduce(Decimal.zero) { $0 + $1.credit }
-            let sumY = y - rowH
+            let sumY = y
             ox = margin
             drawCell("", rect: CGRect(x: ox, y: sumY, width: cols[0], height: rowH)); ox += cols[0]
             drawCell("", rect: CGRect(x: ox, y: sumY, width: cols[1], height: rowH)); ox += cols[1]
@@ -393,11 +385,10 @@ struct PDFExporter {
             drawCell(rmb(pc), rect: CGRect(x: ox, y: sumY, width: cols[4], height: rowH), fontSize: 8, bold: true, alignment: .right); ox += cols[4]
             drawCell("", rect: CGRect(x: ox, y: sumY, width: cols[5], height: rowH)); ox += cols[5]
             drawCell("", rect: CGRect(x: ox, y: sumY, width: cols[6], height: rowH))
-            y -= rowH
+            y += rowH
 
-            // 期末
             let d1 = report.closingBalance >= 0 ? "借" : "贷"
-            let endY = y - rowH
+            let endY = y
             ox = margin
             drawCell("", rect: CGRect(x: ox, y: endY, width: cols[0], height: rowH)); ox += cols[0]
             drawCell("", rect: CGRect(x: ox, y: endY, width: cols[1], height: rowH)); ox += cols[1]
@@ -406,11 +397,11 @@ struct PDFExporter {
             drawCell(d1, rect: CGRect(x: ox, y: endY, width: cols[5], height: rowH), fontSize: 8, bold: true, alignment: .center); ox += cols[5]
             drawCell(rmb(abs(report.closingBalance)), rect: CGRect(x: ox, y: endY, width: cols[6], height: rowH), fontSize: 8, bold: true, alignment: .right)
 
-            y -= rowH + 8
+            y += rowH + 8
             drawLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + contentW, y: y), width: 1.0)
-            y -= 16
+            y += 16
             drawText("企业负责人：__________    主管会计：__________    制表人：__________",
-                     rect: CGRect(x: margin, y: y - 12, width: contentW, height: 14), fontSize: 9, alignment: .center)
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9, alignment: .center)
         }
     }
 
@@ -426,28 +417,28 @@ struct PDFExporter {
 
         return _renderCGPDF(filename: "凭证清单_\(FMT.date(Date())).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
-            var y: CGFloat = totalHeight - margin - 26
+            var y: CGFloat = margin
 
-            drawText("记账凭证清单", rect: CGRect(x: 0, y: y - 22, width: pageW, height: 26),
+            drawText("记账凭证清单", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 18, bold: true, alignment: .center)
-            y -= 28
+            y += 26
             drawText("编制单位：\(companyName)",
-                     rect: CGRect(x: margin, y: y - 14, width: contentW, height: 14), fontSize: 9)
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9)
             drawText("打印日期：\(FMT.date(Date()))    共 \(entries.count) 张凭证",
-                     rect: CGRect(x: margin + contentW * 0.3, y: y - 14, width: contentW * 0.7, height: 14),
+                     rect: CGRect(x: margin + contentW * 0.3, y: y, width: contentW * 0.7, height: 14),
                      fontSize: 9, alignment: .right)
-            y -= 20
+            y += 18
 
             let header = ["日期", "凭证号", "摘要", "借方合计", "贷方合计", "状态", "分录"]
             var ox = margin
             for (w, t) in zip(cols, header) {
-                drawCell(t, rect: CGRect(x: ox, y: y - rowH, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
+                drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
             }
-            y -= rowH
+            y += rowH
 
             for e in entries {
-                let rY = y - rowH
+                let rY = y
                 ox = margin
                 let vals = [FMT.date(e.date), e.number, e.summary,
                             rmb(e.debitTotal), rmb(e.creditTotal),
@@ -457,21 +448,21 @@ struct PDFExporter {
                     drawCell(v, rect: CGRect(x: ox, y: rY, width: cols[i], height: rowH), fontSize: 8, alignment: al)
                     ox += cols[i]
                 }
-                y -= rowH
+                y += rowH
             }
 
-            y -= 4
+            y += 4
             let td = entries.reduce(Decimal.zero) { $0 + $1.debitTotal }
             let tc = entries.reduce(Decimal.zero) { $0 + $1.creditTotal }
             drawText("借方合计：\(rmb(td))    贷方合计：\(rmb(tc))    凭证张数：\(entries.count)",
-                     rect: CGRect(x: margin, y: y - 16, width: contentW, height: 16),
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 16),
                      fontSize: 9, bold: true, alignment: .center)
-            y -= 24
+            y += 22
 
             drawLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + contentW, y: y), width: 1.0)
-            y -= 16
+            y += 16
             drawText("企业负责人：__________    主管会计：__________    制表人：__________",
-                     rect: CGRect(x: margin, y: y - 12, width: contentW, height: 14), fontSize: 9, alignment: .center)
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9, alignment: .center)
         }
     }
 
@@ -479,7 +470,6 @@ struct PDFExporter {
 
     private static func buildBalanceItems(_ lines: [BalanceLine]) -> [(String, String, String)] {
         var items: [(String, String, String)] = []
-        // 加小计行
         let groups = Dictionary(grouping: lines) { line -> String in
             if let code = Int(line.code) {
                 return String(code / 100)
