@@ -146,6 +146,7 @@ struct PDFExporter {
         return _renderCGPDF(filename: "资产负债表_\(FMT.date(report.date)).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
             var y: CGFloat = margin
+            var ox = margin
 
             // 标题
             drawText("资产负债表", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
@@ -165,7 +166,7 @@ struct PDFExporter {
             y += 16
 
             // 表头行
-            var ox = margin
+            ox = margin
             for (t, w) in [("资产", cName), ("行次", cSeq), ("期末余额", cEnd), ("年初余额", cBeg)] {
                 drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
@@ -278,6 +279,7 @@ struct PDFExporter {
         return _renderCGPDF(filename: "利润表_\(report.year)_\(String(format: "%02d", report.month)).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
             var y: CGFloat = margin
+            var ox = margin
 
             drawText("利润表", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 20, bold: true, alignment: .center)
@@ -296,7 +298,7 @@ struct PDFExporter {
             y += 16
 
             // 表头
-            var ox = margin
+            ox = margin
             for (t, w) in [("项目", cProj), ("行次", cSeq), ("本期金额", cAmt), ("本年累计", cCum)] {
                 drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
@@ -334,6 +336,7 @@ struct PDFExporter {
         return _renderCGPDF(filename: "总分类账_\(report.account.code)_\(report.account.name).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
             var y: CGFloat = margin
+            var ox = margin
 
             drawText("总分类账", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 18, bold: true, alignment: .center)
@@ -351,7 +354,7 @@ struct PDFExporter {
 
             // 表头
             let header = ["日期", "凭证号", "摘要", "借方金额", "贷方金额", "方向", "余额"]
-            var ox = margin
+            ox = margin
             for (w, t) in zip(cols, header) {
                 drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
@@ -418,6 +421,7 @@ struct PDFExporter {
         return _renderCGPDF(filename: "凭证清单_\(FMT.date(Date())).pdf",
                              viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
             var y: CGFloat = margin
+            var ox = margin
 
             drawText("记账凭证清单", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
                      fontSize: 18, bold: true, alignment: .center)
@@ -430,7 +434,7 @@ struct PDFExporter {
             y += 18
 
             let header = ["日期", "凭证号", "摘要", "借方合计", "贷方合计", "状态", "分录"]
-            var ox = margin
+            ox = margin
             for (w, t) in zip(cols, header) {
                 drawCell(t, rect: CGRect(x: ox, y: y, width: w, height: rowH), fontSize: 8, bold: true, alignment: .center)
                 ox += w
@@ -466,6 +470,165 @@ struct PDFExporter {
         }
     }
 
+    // MARK: - 增值税申报表
+
+    /// 增值税申报表 PDF 导出（符合一般纳税人申报格式）
+    static func exportVATReport(_ report: VATReport) -> URL? {
+        let cLabel = contentW * 0.25
+        let cAmount = contentW * 0.35
+        let cDesc = contentW * 0.40
+
+        let totalRows = 16 + report.rateBreakdown.count + report.inputDetails.count + report.outputDetails.count
+        let totalHeight = max(pageH, CGFloat(totalRows) * rowH + 200)
+
+        return _renderCGPDF(filename: "增值税申报表_\(report.year)_\(String(format: "%02d", report.month)).pdf",
+                             viewWidth: pageW, viewHeight: totalHeight) { ctx, bounds in
+            var y: CGFloat = margin
+            var ox = margin
+
+            // 标题
+            drawText("增值税申报表", rect: CGRect(x: 0, y: y, width: pageW, height: 26),
+                     fontSize: 20, bold: true, alignment: .center)
+            y += 26
+            drawText("（一般纳税人适用）", rect: CGRect(x: 0, y: y, width: pageW, height: 14),
+                     fontSize: 9, alignment: .center)
+            y += 16
+            drawText("纳税人名称：\(report.companyName)",
+                     rect: CGRect(x: margin, y: y, width: contentW * 0.6, height: 14), fontSize: 9)
+            drawText("所属期：\(report.period)", rect: CGRect(x: margin + contentW * 0.6, y: y, width: contentW * 0.4, height: 14),
+                     fontSize: 9, alignment: .right)
+            y += 16
+            drawText("单位：元（人民币）", rect: CGRect(x: margin, y: y, width: contentW, height: 14),
+                     fontSize: 9, alignment: .right)
+            y += 18
+
+            // 税额汇总表
+            let summaryRows: [(String, Decimal, String)] = [
+                ("一、销项税额", report.outputTotal, "销项税额合计"),
+                ("二、进项税额", report.inputTotal, "进项税额合计"),
+                ("三、进项税额转出", report.transferOutTotal, ""),
+                ("四、可抵扣税额", report.deductible, ""),
+                ("五、应纳增值税", report.payable, ""),
+                ("六、已预缴税额", report.alreadyPaid, ""),
+            ]
+
+            for (label, amount, note) in summaryRows {
+                let rY = y
+                drawCell(label, rect: CGRect(x: margin, y: rY, width: cLabel, height: rowH), fontSize: 9, bold: true)
+                drawCell(rmb(amount), rect: CGRect(x: margin + cLabel, y: rY, width: cAmount, height: rowH), fontSize: 9, alignment: .right)
+                drawCell(note, rect: CGRect(x: margin + cLabel + cAmount, y: rY, width: cDesc, height: rowH), fontSize: 8, alignment: .left)
+                y += rowH
+            }
+
+            // 分隔线
+            y += 4
+            drawLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + contentW, y: y), width: 1.5)
+            y += 12
+
+            // 应补/退税额
+            let color: NSColor = report.stillDue > 0 ? .red : (report.stillDue < 0 ? .green : .black)
+            drawText("应补（退）税额：\(rmb(abs(report.stillDue)))   \(report.stillDue > 0 ? "应补缴" : report.stillDue < 0 ? "应退税" : "-")",
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 20),
+                     fontSize: 14, bold: true, alignment: .center, color: color)
+            y += 28
+
+            // 税率分档
+            if !report.rateBreakdown.isEmpty {
+                drawText("按税率分档明细", rect: CGRect(x: margin, y: y, width: contentW, height: 16),
+                         fontSize: 11, bold: true, alignment: .left)
+                y += 18
+
+                let rateHeader = ["税率", "进项金额", "销项金额", "净额"]
+                let rateCols: [CGFloat] = [80, (contentW - 80) / 3, (contentW - 80) / 3, (contentW - 80) / 3]
+                ox = margin
+                for (i, h) in rateHeader.enumerated() {
+                    drawCell(h, rect: CGRect(x: ox, y: y, width: rateCols[i], height: rowH), fontSize: 8, bold: true, alignment: .center)
+                    ox += rateCols[i]
+                }
+                y += rowH
+
+                for rb in report.rateBreakdown {
+                    let rY = y
+                    ox = margin
+                    drawCell(rb.rateDisplay, rect: CGRect(x: ox, y: rY, width: rateCols[0], height: rowH), fontSize: 8, alignment: .center)
+                    ox += rateCols[0]
+                    drawCell(rmb(rb.inputAmount), rect: CGRect(x: ox, y: rY, width: rateCols[1], height: rowH), fontSize: 8, alignment: .right)
+                    ox += rateCols[1]
+                    drawCell(rmb(rb.outputAmount), rect: CGRect(x: ox, y: rY, width: rateCols[2], height: rowH), fontSize: 8, alignment: .right)
+                    ox += rateCols[2]
+                    drawCell(rmb(rb.outputAmount - rb.inputAmount), rect: CGRect(x: ox, y: rY, width: rateCols[3], height: rowH), fontSize: 8, alignment: .right)
+                    y += rowH
+                }
+                y += 8
+            }
+
+            // 进项/销项明细（仅输出有数据的一方）
+            if !report.inputDetails.isEmpty {
+                y += 4
+                drawText("进项发票明细", rect: CGRect(x: margin, y: y, width: contentW, height: 16),
+                         fontSize: 11, bold: true)
+                y += 18
+
+                let detCols: [CGFloat] = [80, 160, contentW - 80 - 160 - 80, 80]
+                let detHeaders = ["凭证号", "摘要", "税率", "税额"]
+                ox = margin
+                for (i, h) in detHeaders.enumerated() {
+                    drawCell(h, rect: CGRect(x: ox, y: y, width: detCols[i], height: rowH), fontSize: 8, bold: true, alignment: .center)
+                    ox += detCols[i]
+                }
+                y += rowH
+
+                for det in report.inputDetails.prefix(20) {
+                    let rY = y
+                    ox = margin
+                    drawCell(det.voucherNumber, rect: CGRect(x: ox, y: rY, width: detCols[0], height: rowH), fontSize: 7)
+                    ox += detCols[0]
+                    drawCell(det.summary, rect: CGRect(x: ox, y: rY, width: detCols[1], height: rowH), fontSize: 7)
+                    ox += detCols[1]
+                    drawCell(det.rateDisplay, rect: CGRect(x: ox, y: rY, width: detCols[2], height: rowH), fontSize: 7, alignment: .center)
+                    ox += detCols[2]
+                    drawCell(rmb(det.amount), rect: CGRect(x: ox, y: rY, width: detCols[3], height: rowH), fontSize: 7, alignment: .right)
+                    y += rowH
+                }
+                y += 8
+            }
+
+            if !report.outputDetails.isEmpty {
+                y += 4
+                drawText("销项发票明细", rect: CGRect(x: margin, y: y, width: contentW, height: 16),
+                         fontSize: 11, bold: true)
+                y += 18
+
+                let detCols: [CGFloat] = [80, 160, contentW - 80 - 160 - 80, 80]
+                ox = margin
+                for (i, h) in ["凭证号", "摘要", "税率", "税额"].enumerated() {
+                    drawCell(h, rect: CGRect(x: ox, y: y, width: detCols[i], height: rowH), fontSize: 8, bold: true, alignment: .center)
+                    ox += detCols[i]
+                }
+                y += rowH
+
+                for det in report.outputDetails.prefix(20) {
+                    let rY = y
+                    ox = margin
+                    drawCell(det.voucherNumber, rect: CGRect(x: ox, y: rY, width: detCols[0], height: rowH), fontSize: 7)
+                    ox += detCols[0]
+                    drawCell(det.summary, rect: CGRect(x: ox, y: rY, width: detCols[1], height: rowH), fontSize: 7)
+                    ox += detCols[1]
+                    drawCell(det.rateDisplay, rect: CGRect(x: ox, y: rY, width: detCols[2], height: rowH), fontSize: 7, alignment: .center)
+                    ox += detCols[2]
+                    drawCell(rmb(det.amount), rect: CGRect(x: ox, y: rY, width: detCols[3], height: rowH), fontSize: 7, alignment: .right)
+                    y += rowH
+                }
+            }
+
+            y += rowH
+            drawLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + contentW, y: y), width: 1.0)
+            y += 16
+            drawText("企业负责人：__________    主管会计：__________    制表人：__________",
+                     rect: CGRect(x: margin, y: y, width: contentW, height: 14), fontSize: 9, alignment: .center)
+        }
+    }
+
     // MARK: - 构建列表
 
     private static func buildBalanceItems(_ lines: [BalanceLine]) -> [(String, String, String)] {
@@ -490,4 +653,174 @@ struct PDFExporter {
         }
         return items
     }
+
+
+    // MARK: - CSV 中国税局标准格式导出
+
+    /// 生成 UTF-8 BOM 带引号的 CSV
+    private static func writeCSV(filename: String, headers: [String], rows: [[String]]) -> URL? {
+        var csv = "\u{FEFF}"  // UTF-8 BOM for Excel
+        csv += headers.map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" }.joined(separator: ",") + "\n"
+        for row in rows {
+            csv += row.map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" }.joined(separator: ",") + "\n"
+        }
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dest = downloads.appendingPathComponent(filename)
+        try? FileManager.default.removeItem(at: dest)
+        do {
+            try csv.write(to: dest, atomically: true, encoding: String.Encoding.utf8)
+            print("[CSV] 已保存: \(dest.path)")
+            return dest
+        } catch {
+            print("[CSV] 保存失败: \(error)")
+            return nil
+        }
+    }
+
+    /// 导出增值税申报 CSV（中国税局标准格式）
+    /// 格式: 所属期,税种,项目,金额
+    static func exportVATCSV(report: VATReport) -> URL? {
+        let headers = ["所属期", "税种", "项目", "金额"]
+        var rows: [[String]] = []
+        let period = report.period
+
+        // 销项税额明细
+        for det in report.outputDetails {
+            rows.append([period, "增值税", "销项税额-\(det.rateDisplay)", FMT.amount(det.amount)])
+        }
+        // 进项税额明细
+        for det in report.inputDetails {
+            rows.append([period, "增值税", "进项税额-\(det.rateDisplay)", FMT.amount(det.amount)])
+        }
+        // 汇总行
+        rows.append([period, "增值税", "销项税额合计", FMT.amount(report.outputTotal)])
+        rows.append([period, "增值税", "进项税额合计", FMT.amount(report.inputTotal)])
+        rows.append([period, "增值税", "进项税额转出", FMT.amount(report.transferOutTotal)])
+        rows.append([period, "增值税", "应纳增值税", FMT.amount(report.payable)])
+        rows.append([period, "增值税", "已预缴税额", FMT.amount(report.alreadyPaid)])
+        rows.append([period, "增值税", "应补（退）税额", FMT.amount(abs(report.stillDue))])
+
+        return writeCSV(filename: "增值税申报表_\(period).csv", headers: headers, rows: rows)
+    }
+
+    /// 导出试算平衡表 CSV
+    @MainActor static func exportTrialBalanceCSV(companyID: UUID, year: Int, month: Int) -> URL? {
+        let accounts = DataStore.shared.accounts(for: companyID).filter(\.isActive)
+        let headers = ["科目编码", "科目名称", "类别", "期初借方", "期初贷方", "本期借方", "本期贷方", "期末借方", "期末贷方"]
+        var rows: [[String]] = []
+
+        for account in accounts.sorted(by: { $0.code < $1.code }) {
+            let bal = AccountingEngine.balance(for: account)
+            let period = AccountingEngine.periodBalance(for: account, year: year, month: month)
+            let cached = AccountingEngine.cachedBalance(for: account, year: year, month: month)
+
+            let opening = cached?.opening ?? 0
+            let isDebitDir = account.effectiveBalanceDirection == .debit
+
+            var begDebit = "", begCredit = "", endDebit = "", endCredit = ""
+            if isDebitDir {
+                begDebit = FMT.amount(opening)
+                endDebit = bal >= 0 ? FMT.amount(bal) : ""
+                endCredit = bal < 0 ? FMT.amount(abs(bal)) : ""
+            } else {
+                begCredit = FMT.amount(opening)
+                endCredit = bal >= 0 ? FMT.amount(bal) : ""
+                endDebit = bal < 0 ? FMT.amount(abs(bal)) : ""
+            }
+
+            rows.append([
+                account.code, account.name, account.category.rawValue,
+                begDebit, begCredit,
+                FMT.amount(period.debit), FMT.amount(period.credit),
+                endDebit, endCredit
+            ])
+        }
+
+        return writeCSV(filename: "试算平衡表_\(year)_\(String(format: "%02d", month)).csv", headers: headers, rows: rows)
+    }
+
+    /// 导出总分类账 CSV
+    @MainActor static func exportGeneralLedgerCSV(entries: [JournalEntry], accountCode: String, accountName: String,
+                                        year: Int, month: Int, companyID: UUID) -> URL? {
+        let headers = ["日期", "凭证号", "摘要", "借方金额", "贷方金额", "余额"]
+        var rows: [[String]] = []
+        var runningBalance: Decimal = 0
+
+        // 通过余额缓存获取期初余额
+        if let account = DataStore.shared.accounts(for: companyID).first(where: { $0.code == accountCode }),
+           let cached = AccountingEngine.cachedBalance(for: account, year: year, month: month) {
+            runningBalance = cached.opening
+        }
+
+        for entry in entries.sorted(by: { $0.date < $1.date }) {
+            for line in entry.lines {
+
+                runningBalance = runningBalance + line.debit - line.credit
+                rows.append([
+                    FMT.date(entry.date), entry.number, line.summary,
+                    line.debit > 0 ? FMT.amount(line.debit) : "",
+                    line.credit > 0 ? FMT.amount(line.credit) : "",
+                    FMT.amount(abs(runningBalance)) + (runningBalance >= 0 ? "借" : "贷")
+                ])
+            }
+        }
+
+        return writeCSV(filename: "总分类账_\(accountCode)_\(accountName)_\(year)_\(String(format: "%02d", month)).csv",
+                        headers: headers, rows: rows)
+    }
+
+    /// 导出账龄分析 CSV
+    static func exportAgingAnalysisCSV(agingData: [(name: String, buckets: [Decimal], total: Decimal)]) -> URL? {
+        let headers = ["往来单位", "0-30天", "31-60天", "61-90天", "90天以上", "合计"]
+        var rows: [[String]] = []
+
+        for item in agingData {
+            let buckets = item.buckets
+            rows.append([
+                item.name,
+                buckets.count > 0 ? FMT.amount(buckets[0]) : "",
+                buckets.count > 1 ? FMT.amount(buckets[1]) : "",
+                buckets.count > 2 ? FMT.amount(buckets[2]) : "",
+                buckets.count > 3 ? FMT.amount(buckets[3]) : "",
+                FMT.amount(item.total)
+            ])
+        }
+
+        return writeCSV(filename: "账龄分析表_\(FMT.date(Date())).csv", headers: headers, rows: rows)
+    }
+
+    /// 导出一条日记账分录 CSV
+    @MainActor static func exportJournalEntryCSV(entry: JournalEntry, companyName: String, companyID: UUID) -> URL? {
+        let _ = companyName
+        let headers = ["凭证号", "日期", "摘要", "科目编码", "科目名称", "借方金额", "贷方金额", "备注"]
+        var rows: [[String]] = []
+
+        for line in entry.lines {
+            // 安全获取科目信息（避免 @MainActor 跨线程问题）
+            let acctCode: String = {
+                guard let aid = line.accountID else { return line.accountCode }
+                if !line.accountCode.isEmpty { return line.accountCode }
+                return DataStore.shared.accounts(for: companyID).first(where: { $0.id == aid })?.code ?? line.accountCode
+            }()
+            let acctName: String = {
+                guard let aid = line.accountID else { return line.accountName }
+                if !line.accountName.isEmpty { return line.accountName }
+                return DataStore.shared.accounts(for: companyID).first(where: { $0.id == aid })?.name ?? line.accountName
+            }()
+            rows.append([
+                entry.number, FMT.date(entry.date), line.summary,
+                acctCode, acctName,
+                line.debit > 0 ? FMT.amount(line.debit) : "",
+                line.credit > 0 ? FMT.amount(line.credit) : "",
+                ""
+            ])
+        }
+        // 合计行
+        rows.append(["", "", "合计", "", "", FMT.amount(entry.debitTotal), FMT.amount(entry.creditTotal), ""])
+
+        return writeCSV(filename: "凭证_\(entry.number).csv", headers: headers, rows: rows)
+    }
+
 }

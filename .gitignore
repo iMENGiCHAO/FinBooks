@@ -22,3 +22,9 @@ FinBooks-arm64
 
 # Temp / cache
 /tmp/swiftmodcache
+/archive/
+
+# Python cache
+__pycache__/
+*.pyc
+fix_quote.py

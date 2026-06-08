@@ -1,0 +1,429 @@
+{
+  "name": "FinBooks",
+  "version": "2.6.0",
+  "description": "AI 财务管理系统 — 支持会计凭证、三大报表、增值税申报、固定资产管理、银行对账。提供 Bridge HTTP 服务 (localhost:9090) 供 Hermes / OpenClaw / Codex 等智能体调用。",
+  "author": "FinBooks Team",
+  "homepage": "https://github.com/finbooks/finbooks",
+  "icon": "https://raw.githubusercontent.com/finbooks/finbooks/main/AppIcon.png",
+  "entry": "scripts/finbooks_bridge.py",
+  "skills": [
+    {
+      "name": "install-finbooks",
+      "description": "Auto-detect and install FinBooks plugin to Hermes/OpenClaw/Codex agents, start Bridge service",
+      "file": "SKILL.md"
+    }
+  ],
+  "tools": [
+    {
+      "name": "finbooks_install_plugin",
+      "description": "一键安装 FinBooks 插件到 Hermes/OpenClaw/Codex 智能体，启动 Bridge 数据服务。用户只需打开 FinBooks App → AI 助手 → 点击「适配本地智能体」按钮即可自动完成全部安装。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "finbooks_uninstall_plugin",
+      "description": "卸载 FinBooks 插件从 Hermes/OpenClaw/Codex 智能体。移除插件文件、停止 Bridge 服务、删除 LaunchAgent",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "卸载哪个智能体的插件: all/hermes/openclaw/codex",
+            "enum": [
+              "all",
+              "hermes",
+              "openclaw",
+              "codex"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_query_balance",
+      "description": "查询指定科目的实时余额，如 现金、银行存款等",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_code": {
+            "type": "string",
+            "description": "科目编码，如 1001(库存现金) 1002(银行存款) 1122(应收账款)"
+          }
+        },
+        "required": [
+          "account_code"
+        ]
+      }
+    },
+    {
+      "name": "finbooks_list_accounts",
+      "description": "列出所有会计科目及类别（资产/负债/权益/收入/费用）",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "finbooks_list_entries",
+      "description": "查询凭证列表，可按年份、月份筛选",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份如 2026"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份如 6"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数默认50"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_get_totals",
+      "description": "获取核心财务数据：总资产、总负债、所有者权益、收入、费用、净利润",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "finbooks_income_statement",
+      "description": "获取利润表（含收入和费用明细）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_balance_sheet",
+      "description": "获取资产负债表",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "finbooks_cash_flow",
+      "description": "获取现金流量表",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_vat_report",
+      "description": "获取增值税申报表（进项/销项/应纳/应补退税）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_general_ledger",
+      "description": "查询指定科目的总分类账明细（含每笔凭证日期、摘要、借/贷、余额）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_code": {
+            "type": "string",
+            "description": "科目编码，如 1002"
+          },
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          }
+        },
+        "required": [
+          "account_code",
+          "year",
+          "month"
+        ]
+      }
+    },
+    {
+      "name": "finbooks_create_entry",
+      "description": "创建记账凭证（自动校验借贷平衡，自动获取公司ID）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "凭证摘要"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account_code": {
+                  "type": "string"
+                },
+                "account_name": {
+                  "type": "string"
+                },
+                "debit": {
+                  "type": "number"
+                },
+                "credit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "summary",
+          "lines"
+        ]
+      }
+    },
+    {
+      "name": "finbooks_create_account",
+      "description": "创建新的会计科目，自动设置余额方向",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "科目编码，如 1003"
+          },
+          "name": {
+            "type": "string",
+            "description": "科目名称"
+          },
+          "category": {
+            "type": "string",
+            "description": "类别：asset/liability/equity/revenue/expense"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "category"
+        ]
+      }
+    },
+    {
+      "name": "finbooks_get_anomalies",
+      "description": "扫描财务异常：资产负债表不平、借贷不平、科目负余额、大额交易",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "finbooks_get_audit_logs",
+      "description": "获取审计日志（创建/修改/过账/结账等操作记录）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数默认20"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_export_csv",
+      "description": "导出财务数据为 CSV（供税务/审计使用）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "report_type": {
+            "type": "string",
+            "description": "类型：general_ledger/trial_balance/vat/entries/tax_bureau"
+          },
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          },
+          "account_code": {
+            "type": "string",
+            "description": "科目编码（general_ledger 必需）"
+          }
+        },
+        "required": [
+          "report_type"
+        ]
+      }
+    },
+    {
+      "name": "finbooks_trial_balance",
+      "description": "获取试算平衡表 — 所有科目的期末借贷方汇总，自动判断是否平衡",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份，如 2026"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份，如 6"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_aging_report",
+      "description": "获取应收/应付账龄分析报告（按0-30天、31-60天、61-90天、90天以上分档）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份，如 2026"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份，如 6"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_audit_export",
+      "description": "导出完整审计数据包（试算平衡表+审计日志+凭证列表+税项汇总），供外部审计使用",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          },
+          "format": {
+            "type": "string",
+            "description": "输出格式: json/csv",
+            "enum": [
+              "json",
+              "csv"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_tax_export",
+      "description": "导出增值税申报格式数据（销项/进项明细+税款计算），符合中国税务申报要求",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "年份"
+          },
+          "month": {
+            "type": "integer",
+            "description": "月份"
+          },
+          "format": {
+            "type": "string",
+            "description": "输出格式: json/csv",
+            "enum": [
+              "json",
+              "csv"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_tax_cit",
+      "description": "企业所得税汇算清缴：获取年度企业所得税汇算数据（会计利润、纳税调整、应纳所得税额），符合国家税务总局企业所得税年度申报A类表要求。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "纳税年度，如 2026"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "csv"
+            ],
+            "description": "输出格式，默认json"
+          }
+        }
+      }
+    },
+    {
+      "name": "finbooks_audit_working_paper",
+      "description": "导出审计底稿：按照中国注册会计师审计准则(CAS)生成标准审计底稿包，包含试算平衡表、凭证抽查样本、银行存款余额调节表、审计日志。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "审计年度，如 2026"
+          },
+          "month": {
+            "type": "integer",
+            "description": "审计月份，如 6"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "csv"
+            ],
+            "description": "输出格式，默认json"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "审计日志限制条数，默认500"
+          }
+        }
+      }
+    }
+  ]
+}

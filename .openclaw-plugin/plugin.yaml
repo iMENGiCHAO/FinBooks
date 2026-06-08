@@ -1,0 +1,275 @@
+# FinBooks OpenClaw Plugin v2.1
+# ============================================
+# 通过 HTTP 调用 FinBooks Bridge (localhost:9090)
+# 安装: OpenClaw 自动加载此目录
+
+name: finbooks
+version: "2.5.0"
+description: "FinBooks 财务管理 — AI 驱动的会计工具集"
+author: "FinBooks"
+
+bridge_url: "http://127.0.0.1:9090"
+
+tools:
+  - name: finbooks_query_balance
+    description: "查询指定科目的实时余额"
+    parameters:
+      type: object
+      properties:
+        account_code:
+          type: string
+          description: "科目编码，如 1001(库存现金) 1002(银行存款) 1122(应收账款)"
+      required: ["account_code"]
+
+  - name: finbooks_uninstall_plugin
+    description: "卸载 FinBooks 插件从 Hermes/OpenClaw/Codex 智能体。移除插件文件、停止 Bridge 服务、删除 LaunchAgent"
+    parameters:
+      type: object
+      properties:
+        agent:
+          type: string
+          description: "卸载哪个智能体的插件: all/hermes/openclaw/codex"
+          enum:
+            - all
+            - hermes
+            - openclaw
+            - codex
+
+  - name: finbooks_list_accounts
+    description: "列出所有会计科目及类别"
+    parameters:
+      type: object
+      properties: {}
+
+  - name: finbooks_list_entries
+    description: "查询凭证列表"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+        limit:
+          type: integer
+          description: "返回条数，默认 50"
+
+  - name: finbooks_get_totals
+    description: "获取三表核心数据：总资产、总负债、所有者权益、收入、费用、净利润"
+    parameters:
+      type: object
+      properties: {}
+
+  - name: finbooks_income_statement
+    description: "获取利润表"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+
+  - name: finbooks_balance_sheet
+    description: "获取资产负债表"
+    parameters:
+      type: object
+      properties: {}
+
+  - name: finbooks_cash_flow
+    description: "获取现金流量表"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+
+  - name: finbooks_vat_report
+    description: "获取增值税申报表"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+
+  - name: finbooks_general_ledger
+    description: "查询总分类账"
+    parameters:
+      type: object
+      properties:
+        account_code:
+          type: string
+          description: "科目编码"
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+      required: ["account_code", "year", "month"]
+
+  - name: finbooks_create_entry
+    description: "创建记账凭证（自动校验借贷平衡）"
+    parameters:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: "凭证摘要"
+        lines:
+          type: array
+          description: "分录行"
+          items:
+            type: object
+            properties:
+              account_code:
+                type: string
+                description: "科目编码"
+              account_name:
+                type: string
+                description: "科目名称"
+              debit:
+                type: number
+                description: "借方金额"
+              credit:
+                type: number
+                description: "贷方金额"
+              summary:
+                type: string
+                description: "分录行摘要"
+      required: ["summary", "lines"]
+
+  - name: finbooks_create_account
+    description: "创建新的会计科目"
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+          description: "科目编码"
+        name:
+          type: string
+          description: "科目名称"
+        category:
+          type: string
+          description: "科目类别: asset|liability|equity|revenue|expense"
+      required: ["code", "name", "category"]
+
+  - name: finbooks_get_anomalies
+    description: "扫描财务异常：借贷不平、大额交易、重复凭证等"
+    parameters:
+      type: object
+      properties: {}
+
+
+  - name: finbooks_aging_report
+    description: "获取应收/应付账龄分析报告（按0-30天、31-60天、61-90天、90天以上分档）"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份，如 2026"
+        month:
+          type: integer
+          description: "月份，如 6"
+
+  - name: finbooks_get_audit_logs
+    description: "获取审计日志"
+    parameters:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: "返回条数，默认 20"
+
+  - name: finbooks_trial_balance
+    description: "获取试算平衡表 — 所有科目的期末借贷方汇总，自动判断是否平衡"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+
+  - name: finbooks_export_csv
+    description: "导出财务数据为 CSV 格式（供税务/审计使用）"
+    parameters:
+      type: object
+      properties:
+        report_type:
+          type: string
+          description: "导出类型: general_ledger|trial_balance|vat|entries|tax_bureau"
+          enum: ["general_ledger", "trial_balance", "vat", "entries", "tax_bureau"]
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+        account_code:
+          type: string
+          description: "科目编码（general_ledger 必需）"
+      required: ["report_type"]
+
+  - name: finbooks_audit_export
+    description: "导出完整审计数据包（试算平衡表+审计日志+凭证列表+税项汇总），供外部审计使用"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+        format:
+          type: string
+          description: "输出格式: json (默认) / csv"
+          enum: ["json", "csv"]
+      required: []
+
+  - name: finbooks_tax_export
+    description: "导出增值税申报格式数据（销项/进项明细+税款计算），符合中国税务申报要求"
+    parameters:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: "年份"
+        month:
+          type: integer
+          description: "月份"
+        format:
+          type: string
+          description: "输出格式: json (默认) / csv"
+          enum: ["json", "csv"]
+      required: []
+
+system_prompt: |
+  你正在 FinBooks 财务管理系统中工作，可以操作以下财务工具：
+  【查询工具】finbooks_query_balance, finbooks_list_accounts, finbooks_list_entries, finbooks_get_totals
+  【报表工具】finbooks_income_statement, finbooks_balance_sheet, finbooks_cash_flow, finbooks_vat_report, finbooks_general_ledger, finbooks_trial_balance
+  【写入工具】finbooks_create_entry, finbooks_create_account
+  【审计工具】finbooks_get_anomalies, finbooks_get_audit_logs, finbooks_aging_report
+  【导出工具】finbooks_export_csv, finbooks_audit_export, finbooks_tax_export
+  规则：
+  1. 创建凭证时必须确保借贷平衡
+  2. 涉及金额全部使用 ¥ 符号
+  3. 回答时引用具体科目编码和金额
+  4. 发现异常和账龄分析问题时主动提示用户

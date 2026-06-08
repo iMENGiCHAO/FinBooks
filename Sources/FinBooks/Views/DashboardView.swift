@@ -26,12 +26,29 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal)
 
+                // 异常检测横幅
+                AnomalyBanner(company: company)
+                    .onAppear {
+                        AnomalyDetector.shared.scan(companyID: company.id)
+                    }
+
                 // 财务指标卡片
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                     StatCard(title: "总资产", value: totalAssets, color: .blue)
                     StatCard(title: "总负债", value: totalLiabilities, color: .orange)
                     StatCard(title: "所有者权益", value: totalEquity, color: .green)
                     StatCard(title: "本月净利润", value: netProfit, color: netProfit >= 0 ? .green : .red)
+                    StatCard(title: "经营现金净额", value: operatingCashFlow, color: operatingCashFlow >= 0 ? .cyan : .red)
+                    StatCard(title: "投资现金净额", value: investingCashFlow, color: investingCashFlow >= 0 ? .teal : .orange)
+                    StatCard(title: "筹资现金净额", value: financingCashFlow, color: financingCashFlow >= 0 ? .mint : .orange)
+                    StatCard(title: "现金净增额", value: netCashChange, color: netCashChange >= 0 ? .blue : .red)
+                }
+                .padding(.horizontal)
+
+                // 现金流量摘要
+                GroupBox("现金流量摘要") {
+                    CashFlowSummaryView(cashReport: cashFlowReport)
+                        .frame(minHeight: 60)
                 }
                 .padding(.horizontal)
 
@@ -113,6 +130,26 @@ struct DashboardView: View {
         let expense = accounts.filter { $0.isActive && $0.category == .expense }
             .reduce(Decimal.zero) { $0 + AccountingEngine.balance(for: $1, upTo: periodEnd) - AccountingEngine.beginningBalance(for: $1, asOf: periodStart) }
         return revenue - expense
+    }
+
+    private var cashFlowReport: CashFlowReport {
+        AccountingEngine.cashFlowStatement(for: company, year: currentPeriod.year, month: currentPeriod.month)
+    }
+
+    private var operatingCashFlow: Decimal {
+        cashFlowReport.operatingNet
+    }
+
+    private var investingCashFlow: Decimal {
+        cashFlowReport.investingNet
+    }
+
+    private var financingCashFlow: Decimal {
+        cashFlowReport.financingNet
+    }
+
+    private var netCashChange: Decimal {
+        cashFlowReport.netCashFlow
     }
 }
 
@@ -216,5 +253,51 @@ struct RecentEntriesList: View {
             }
             .tableStyle(.bordered)
         }
+    }
+}
+
+// MARK: - 现金流量摘要组件
+
+struct CashFlowSummaryView: View {
+    let cashReport: CashFlowReport
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                CashSummaryItem(label: "经营流入", value: cashReport.operatingInflows.map(\.amount).reduce(0, +), color: .green)
+                CashSummaryItem(label: "经营流出", value: cashReport.operatingOutflows.map(\.amount).reduce(0, +), color: .red)
+                CashSummaryItem(label: "投资流入", value: cashReport.investingInflows.map(\.amount).reduce(0, +), color: .green)
+                CashSummaryItem(label: "投资流出", value: cashReport.investingOutflows.map(\.amount).reduce(0, +), color: .red)
+                CashSummaryItem(label: "筹资流入", value: cashReport.financingInflows.map(\.amount).reduce(0, +), color: .green)
+                CashSummaryItem(label: "筹资流出", value: cashReport.financingOutflows.map(\.amount).reduce(0, +), color: .red)
+                CashSummaryItem(label: "期初现金", value: cashReport.beginningCash, color: .secondary)
+                CashSummaryItem(label: "期末现金", value: cashReport.endingCash, color: .blue)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+
+/// 单项现金摘要
+struct CashSummaryItem: View {
+    let label: String
+    let value: Decimal
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text("¥" + FMT.amount(value))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(color.opacity(0.08))
+        .cornerRadius(6)
     }
 }

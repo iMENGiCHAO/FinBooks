@@ -20,10 +20,10 @@ rm -rf "$ARCHIVE_DIR" "$PROJECT_DIR/$APP_NAME"
 # Step 1: compile for native arch
 echo "=== 编译 ($NATIVE_ARCH) ==="
 swiftc \
-  -target "${NATIVE_ARCH}-apple-macosx14.0" \
+  -target "${NATIVE_ARCH}-apple-macosx15.0" \
   -sdk "$SDK_PATH" \
   -o "$PROJECT_DIR/$APP_NAME" \
-  "${SOURCES[@]}" -O -whole-module-optimization -module-cache-path /tmp/swiftmodcache 2>&1
+  "${SOURCES[@]}" -O -module-cache-path /tmp/swiftmodcache 2>&1
 
 file "$PROJECT_DIR/$APP_NAME"
 echo "编译完成"
@@ -33,10 +33,10 @@ if [ "$NATIVE_ARCH" = "x86_64" ]; then
     echo ""
     echo "=== 尝试编译 arm64 (Apple Silicon) ==="
     if swiftc \
-      -target "arm64-apple-macosx14.0" \
+      -target "arm64-apple-macosx15.0" \
       -sdk "$SDK_PATH" \
       -o "$PROJECT_DIR/${APP_NAME}-arm64" \
-      "${SOURCES[@]}" -O -whole-module-optimization -module-cache-path /tmp/swiftmodcache 2>&1; then
+      "${SOURCES[@]}" -O -module-cache-path /tmp/swiftmodcache 2>&1; then
         echo "arm64 编译成功!"
         echo "=== 创建 Universal Binary ==="
         lipo -create \
@@ -68,6 +68,32 @@ if [ -f "$ICON_SRC" ]; then
     cp "$ICON_SRC" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
     echo "已添加 AppIcon.icns"
 fi
+
+# Embed bridge script and agent plugins (for self-contained .app bundle, always runs)
+echo "嵌入 Bridge 服务脚本..."
+mkdir -p "$APP_BUNDLE/Contents/Resources/scripts"
+cp "$PROJECT_DIR/scripts/finbooks_bridge.py" "$APP_BUNDLE/Contents/Resources/scripts/"
+cp "$PROJECT_DIR/scripts/install_finbooks_plugin.sh" "$APP_BUNDLE/Contents/Resources/scripts/"
+echo "嵌入插件文件..."
+
+# Codex 插件
+mkdir -p "$APP_BUNDLE/Contents/Resources/.codex-plugin"
+cp "$PROJECT_DIR/.codex-plugin/plugin.json" "$APP_BUNDLE/Contents/Resources/.codex-plugin/"
+cp "$PROJECT_DIR/.codex-plugin/SKILL.md" "$APP_BUNDLE/Contents/Resources/.codex-plugin/"
+
+# Hermes 插件
+mkdir -p "$APP_BUNDLE/Contents/Resources/.hermes-plugin"
+cp "$PROJECT_DIR/.hermes-plugin/plugin.yaml" "$APP_BUNDLE/Contents/Resources/.hermes-plugin/"
+cp "$PROJECT_DIR/.hermes-plugin/__init__.py" "$APP_BUNDLE/Contents/Resources/.hermes-plugin/"
+
+# OpenClaw 插件
+mkdir -p "$APP_BUNDLE/Contents/Resources/.openclaw-plugin"
+cp "$PROJECT_DIR/.openclaw-plugin/plugin.yaml" "$APP_BUNDLE/Contents/Resources/.openclaw-plugin/"
+cp "$PROJECT_DIR/.openclaw-plugin/__init__.py" "$APP_BUNDLE/Contents/Resources/.openclaw-plugin/"
+
+echo "Bridge 和插件已嵌入 .app 包"
+
+
 
 cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLISTEOF'
 <?xml version="1.0" encoding="UTF-8"?>

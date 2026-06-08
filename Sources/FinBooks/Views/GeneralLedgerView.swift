@@ -6,6 +6,7 @@ struct GeneralLedgerView: View {
     @State private var selectedAccount: Account?
     @State private var year = Calendar.current.component(.year, from: Date())
     @State private var month = Calendar.current.component(.month, from: Date())
+    @State private var showTAccount = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +45,12 @@ struct GeneralLedgerView: View {
                         Label("导出PDF", systemImage: "arrow.down.doc")
                     }
                     .buttonStyle(.borderedProminent)
+                    Button {
+                        showTAccount = true
+                    } label: {
+                        Label("T型账户", systemImage: "t.square")
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
             .padding()
@@ -57,6 +64,12 @@ struct GeneralLedgerView: View {
                                        description: Text("请选择一个科目查看总账"))
             }
         }
+        .sheet(isPresented: $showTAccount) {
+            if let account = selectedAccount {
+                TAccountView(account: account, year: year, month: month)
+                    .frame(minWidth: 700, minHeight: 500)
+            }
+        }
     }
 
     private var availableYears: [Int] {
@@ -68,7 +81,8 @@ struct GeneralLedgerView: View {
     private func ledgerReport(account: Account) -> some View {
         let report = AccountingEngine.generalLedger(for: account, year: year, month: month)
 
-        VStack(alignment: .leading, spacing: 8) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(account.code) \(account.name)")
                     .font(.title2)
@@ -119,5 +133,6 @@ struct GeneralLedgerView: View {
             .tableStyle(.bordered)
         }
         .padding(.bottom)
+        } // end ScrollView
     }
 }

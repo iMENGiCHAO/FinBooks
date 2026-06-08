@@ -40,6 +40,8 @@ struct JournalEntriesView: View {
     @State private var confirmDelete: JournalEntry?
     @State private var selectedEntries = Set<JournalEntry.ID>()
     @State private var postError: String? = nil
+    @State private var unpostReasonEntry: JournalEntry? = nil
+    @State private var unpostReasonText: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,8 +76,13 @@ struct JournalEntriesView: View {
                 onEdit: { editingEntry = $0 },
                 onDelete: { confirmDelete = $0 },
                 onTogglePost: { e in
-                    if !dataStore.togglePosted(e) {
-                        postError = "凭证 \(e.number) 过账失败：借贷不平或该期间已结账"
+                    if e.isPosted {
+                        unpostReasonEntry = e
+                        unpostReasonText = ""
+                    } else {
+                        if !dataStore.togglePosted(e) {
+                            postError = "凭证 \(e.number) 过账失败：借贷不平或该期间已结账"
+                        }
                     }
                 }
             )
@@ -100,10 +107,15 @@ struct JournalEntriesView: View {
                     DispatchQueue.main.async { confirmDelete = freshEntry }
                 },
                 onTogglePost: {
-                    if dataStore.togglePosted(freshEntry) {
-                        viewingEntry = nil
+                    if freshEntry.isPosted {
+                        unpostReasonEntry = freshEntry
+                        unpostReasonText = ""
                     } else {
-                        postError = "凭证 \(freshEntry.number) 过账失败：借贷不平或该期间已结账"
+                        if dataStore.togglePosted(freshEntry) {
+                            viewingEntry = nil
+                        } else {
+                            postError = "凭证 \(freshEntry.number) 过账失败：借贷不平或该期间已结账"
+                        }
                     }
                 }
             )
@@ -129,6 +141,24 @@ struct JournalEntriesView: View {
             Button("确定") { postError = nil }
         } message: { msg in
             Text(msg)
+        }
+        .alert("反过账原因", isPresented: .init(
+            get: { unpostReasonEntry != nil },
+            set: { if !$0 { unpostReasonEntry = nil } }
+        )) {
+            TextField("请输入反过账原因（如：凭证录入错误、科目调整）", text: $unpostReasonText)
+            Button("取消", role: .cancel) { unpostReasonEntry = nil }
+            Button("确认反过账") {
+                guard let entry = unpostReasonEntry else { return }
+                if dataStore.togglePosted(entry, reason: unpostReasonText) {
+                    viewingEntry = nil
+                } else {
+                    postError = "反过账失败：原因不能为空或该期间已结账"
+                }
+                unpostReasonEntry = nil
+            }
+        } message: {
+            Text("反过账后该凭证将变为未过账状态，哈希链将被清除。请务必填写原因以供审计。")
         }
     }
 
@@ -484,8 +514,8 @@ struct EntryEditor: View {
                 li.summary = l.summary
                 li.accountID = l.accountID
                 // 编辑时回填科目信息
-                li.accountCode = l.accountCode
-                li.accountName = l.accountName
+                li.accountCode = l.resolvedAccountCode
+                li.accountName = l.resolvedAccountName
                 // 兼容旧数据：如果 accountCode 为空但有 accountID，反查科目信息
                 if li.accountCode.isEmpty, let aid = l.accountID, let acct = DataStore.shared.accounts.first(where: { $0.id == aid }) {
                     li.accountCode = acct.code

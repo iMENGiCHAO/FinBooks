@@ -82,7 +82,14 @@ struct AccountList: View {
     }
 
     var body: some View {
-        Table(filteredAccounts) {
+        if filteredAccounts.isEmpty {
+            ContentUnavailableView(
+                searchText.isEmpty ? "无科目数据" : "未找到匹配科目",
+                systemImage: "list.bullet.rectangle",
+                description: Text(searchText.isEmpty ? "点击「新增」创建第一个科目" : "换个关键词试试")
+            )
+        } else {
+            Table(filteredAccounts) {
             TableColumn("科目编码", value: \.code).width(100)
             TableColumn("科目名称", value: \.name).width(160)
             TableColumn("类别") { account in
@@ -114,6 +121,7 @@ struct AccountList: View {
                 }
             }
         }
+    }
     }
 }
 
@@ -166,6 +174,7 @@ struct AccountEditView: View {
                     isActive = acc.isActive
                 }
             }
+            .frame(minWidth: 380, minHeight: 280)
         }
     }
 
